@@ -3,7 +3,8 @@ UComp is a library that implements comprehensive procedures of identification, e
 
 Another important issue is that it is fully coded in C++. This ensures optimal execution speed and the possibility to 'link' it to many popular environments by just writing the appropriate wrapper functions. At the moment there are versions written in R (installable from CRAN repository, [here](https://cran.r-project.org/web/packages/UComp/index.html)), and MATLAB and Octave in this repository.
 
-**POTENTIAL CONTRIBUTORS**: At the moment, I am looking for contributors that might be interested on 'linking' UComp to other environments, like Python, Go, Julia, and/or any other... The main difficulty, I guess, is the need translate the new environment datatypes to and from Armaillo, that is the linear algebra in which UComp is written. 
+##POTENTIAL CONTRIBUTORS: 
+At the moment, I am looking for contributors that might be interested on 'linking' UComp to other environments, like Python, Go, Julia, and/or any other... The main difficulty, I guess, is the need translate the new environment datatypes to and from Armaillo, that is the linear algebra in which UComp is written. 
 
 Any ideas and improvements are welcome (send me an email)!!
 
