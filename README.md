@@ -5,7 +5,7 @@ Another important issue is that it is fully coded in C++. This ensures optimal e
 
 ## Installation: 
 
-UComp is written in C++. To make it functional in MATLAB you need to compile the toolbox by means of the function mexUComp. You need to download Armadillo C++ library and have access to Lapack and BLAS libraries. Depending on your particular configuration such libraries may be already installed, otherwise proper insntallation would be needed prior to installing UComp (more details in section 3.2 of the manual). In most systems mexUComp only needs the first input that tells the folder where Armadillo library is located.
+UComp is written in C++. To make it functional in MATLAB you need to compile the toolbox by means of the function mexUComp.m. You need to download Armadillo C++ library and have access to Lapack and BLAS libraries. Depending on your particular configuration such libraries may be already installed, otherwise proper insntallation would be needed prior to installing UComp (more details in section 3.2 of the manual). In most systems mexUComp only needs the first input that tells the folder where Armadillo library is located.
 
 
 ## References: 
