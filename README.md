@@ -3,6 +3,11 @@ UComp is a library that implements comprehensive procedures of identification, e
 
 Another important issue is that it is fully coded in C++. This ensures optimal execution speed and the possibility to 'link' it to many popular environments by just writing the appropriate wrapper functions. At the moment there are versions written in R (installable from CRAN repository, [here](https://cran.r-project.org/web/packages/UComp/index.html)), and MATLAB and Octave in this repository.
 
+## Installation: 
+
+UComp is written in C++. To make it functional in MATLAB you need to compile the toolbox by means of the function mexUComp. You need to download Armadillo C++ library and have access to Lapack and BLAS libraries. Depending on your particular configuration such libraries may be already installed, otherwise proper insntallation would be needed prior to installing UComp (more details in section 3.2 of the manual). In most systems mexUComp only needs the first input that tells the folder where Armadillo library is located.
+
+
 ## References: 
 
 Harvey, AC (1989). Forecasting, structural time series models and the Kalman filter. Cambridge university press.
