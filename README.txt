@@ -24,3 +24,9 @@ https://es.mathworks.com/help/matlab/call-mex-file-functions.html?lang=en
 
 https://es.mathworks.com/help/matlab/matlab_external/before-you-run-a-mex-file.html?lang=en
 
+------Using C++ files directly or linking to other environments
+UCompC in cpp folder shows an example of how a UComp model may be run in pure C++ code. This can be useful to illustrate how to integrate the C++ code directly in your own C++ code.
+
+------Integrating C++ files in a Python or other environments
+Integration of UComp C++ files into other environments (say Python) is more complex, and basically consists on writing wrappers in such environment (Python) similar to functions UCompC (this is the most complex, since it involves integrating Python with C++ using the Armadillo library), UC, UCmodel, UCsetup, UCfilter, UCsmooth, UCdisturb, UCcomponents, UCestim and UChp.
+
