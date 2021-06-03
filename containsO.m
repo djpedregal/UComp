@@ -1,0 +1,1 @@
+function out = containsO(str, what)  out = 1 - isempty(regexp(str, what, 'ONCE'));end
