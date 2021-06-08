@@ -17,6 +17,7 @@ struct BSMinputs{
         irregular, // type of irregular
         cycle0;  // type of cycle without numbers
     int ar, ma;     // AR and MA orders of irregular component
+    double seas;    // seasonal period
     vec periods,    // vector of periods for harmonics
         rhos,       // vector indicating whether period is cyclical or seasonal
         ns,         // number of states in components (trend, cycle, seasonal, irregular)
@@ -123,7 +124,7 @@ void findUCmodels(string, string, string, string, vector<string>&);
 // Corrects model, cycle string, periods and rhos for modelling cycles
 void modelCorrect(string&, string&, string&, vec&, vec&);
 // Calculate limits for cycle periods for estimation
-void calculateLimits(int, vec, vec, mat&);
+void calculateLimits(int, vec, vec, mat&, double);
 
 /****************************************************
  // BSM implementations for univariate UC models
@@ -152,7 +153,7 @@ void BSMmodel::setModel(string model, vec periods, vec rhos, bool runFromConstru
         modelCorrect(model, cycle, inputs.cycle0, periods, rhos);
     }
     if (cycle[0] != 'n' && inputs.cycleLimits.has_nan()){
-        calculateLimits(SSmodel::inputs.y.n_elem, periods, rhos, cycleLimits);
+        calculateLimits(SSmodel::inputs.y.n_elem, periods, rhos, cycleLimits, inputs.seas);
         this->inputs.cycleLimits = cycleLimits;
     } else if (cycle[0] != 'n') {
         cycleLimits = inputs.cycleLimits;
@@ -278,6 +279,7 @@ void BSMmodel::checkModel(){
     // Repeat estimation of one model in case of anomalies
     string ok = SSmodel::inputs.estimOk;
     bool add = (inputs.model[0] == 'd');
+    bool printed = false;
     // If no convergence and llt or dt trend model, then slope p0 more rigid
     if ((ok[10] == 'M' || ok[10] == 'U' || ok[10] == 'O' || ok[10] == 'N') &&
         (inputs.model[0] == 'l' || inputs.model[0] == 'd')){
@@ -286,12 +288,45 @@ void BSMmodel::checkModel(){
             printf("    --\n");
             printf("    Estimation problems, trying again...\n");
             printf("    --\n");
+            printed = true;
         }
         SSinputs old = SSmodel::inputs;
         setModel(inputs.model, inputs.periods, inputs.rhos, false);
         bool VERBOSE = old.verbose;
         SSmodel::inputs.verbose = false;
         SSmodel::inputs.p0(1 + add) = -6.2325;
+        // Estimation of particular model
+        if (SSmodel::inputs.outlier == 0){
+            // Without outlier detection
+            estim(SSmodel::inputs.p0);
+        } else {
+            // With outlier detection
+            estimOutlier(SSmodel::inputs.p0);
+        }
+        if (!old.criteria.has_nan() &&
+            (old.criteria(1) < SSmodel::inputs.criteria(1))){
+            SSmodel::inputs = old;
+            SSmodel::inputs.verbose = VERBOSE;
+        }
+    }
+    // Repeat estimation of one model in case of anomalies
+    ok = SSmodel::inputs.estimOk;
+    //add = (inputs.model[0] == 'd');
+    // If no convergence and llt or dt trend model, then level p0 more rigid
+    if ((ok[10] == 'M' || ok[10] == 'U' || ok[10] == 'O' || ok[10] == 'N') &&
+        (inputs.model[0] == 'l' || inputs.model[0] == 'd')){
+        // Next 5 lines in every exception
+        if (SSmodel::inputs.verbose && !printed){
+            printf("    --\n");
+            printf("    Estimation problems, trying again...\n");
+            printf("    --\n");
+            printed = true;
+        }
+        SSinputs old = SSmodel::inputs;
+        setModel(inputs.model, inputs.periods, inputs.rhos, false);
+        bool VERBOSE = old.verbose;
+        SSmodel::inputs.verbose = false;
+        SSmodel::inputs.p0(0 + add) = -6.2325;
         // Estimation of particular model
         if (SSmodel::inputs.outlier == 0){
             // Without outlier detection
@@ -578,8 +613,15 @@ void BSMmodel::ident(string show){
         runAll = false;
     }
     if (runAll){    // no stepwise
-        if (inputTrend == "?")
-            trendTypes = "none/rw/llt/dt";
+        if (inputTrend == "?"){
+            if (inputIrregular != "none" && inputIrregular != "arma(0,0)"
+                    && inputIrregular != "?"){
+                // Avoiding identification problems between arma(p,q) and dt trend
+                trendTypes = "none/rw/llt";
+            } else {
+                trendTypes = "none/rw/llt/dt";
+            }
+        }
         if (inputSeasonal == "?")
             seasTypes = "none/equal/different";
         else
@@ -2300,13 +2342,13 @@ void modelCorrect(string& model, string& cycle, string& cycle0, vec& periods, ve
     rhos = rhos(sIndex);
 }
 // Calculate limits for cycle periods for estimation
-void calculateLimits(int n, vec periods, vec rhos, mat& cycleLimits){
+void calculateLimits(int n, vec periods, vec rhos, mat& cycleLimits, double s){
     double media;
     vec pCycles;
     int nCycles = sum(rhos < 0);
     cycleLimits.resize(nCycles, 2);
     pCycles = periods(span(0, nCycles - 1));
-    double s = max(periods(span(nCycles, periods.n_elem - 1)));
+    //double s = max(periods(span(nCycles, periods.n_elem - 1)));
     // Sorting intermediate limits
     if (any(abs(pCycles) < 1.5 * s) || any(abs(pCycles) <= 2)){
         myError("\n\nUComp ERROR: Cycle period too small!!", RUNNING_FROM_R);
@@ -2332,7 +2374,23 @@ void calculateLimits(int n, vec periods, vec rhos, mat& cycleLimits){
     cycleLimits(0, 1) = pCycles(0);
     cycleLimits(nCycles - 1, 0) = pCycles(nCycles - 1);
     if (pCycles(0) < 0){
-        cycleLimits(0, 1) = n / 1.5;
+        vec aux(2);
+        if (s == 1){
+            aux(0) = n / 1.5;
+            aux(1) = 70;
+            cycleLimits(0, 1) = min(aux);
+        } else if (s == 4){
+            aux(0) =  1.5 * abs(cycleLimits(0, 1));
+            aux(1) = 24;
+            cycleLimits(0, 1) = max(aux);
+            aux(0) = cycleLimits(0, 1);
+            aux(1) = n / 1.5;
+            cycleLimits(0, 1) = min(aux);
+        } else {
+            aux(0) = n / 1.5;
+            aux(1) = 70 * s;
+            cycleLimits(0, 1) = min(aux);
+        }
         if (-pCycles(0) <= cycleLimits(0, 0)){
             myError("\n\nUComp ERROR: Initial condition for cycle too small!!!\n\n", RUNNING_FROM_R);
         } else if (-pCycles(0) >= cycleLimits(0, 1)){

@@ -111,12 +111,13 @@ void chopString(string str, string sub, vector<string>& out) {
 // Issuing errors
 void myError(const char* msg, bool R){
     vec p(3);
-    if (R){
-        //Rf_error(msg);
-    } else {
+    //if (R){
+      //Rf_error(msg);
+      //Rcerr << msg << endl;
+    //} else {
         printf("%s", msg);
         p = p(4) * 2;
-    }
+    //}
 }
 
 

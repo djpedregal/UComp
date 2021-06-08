@@ -85,6 +85,7 @@ void mexFunction(int nlhs, mxArray *plhs[], int nrhs, const mxArray *prhs[]){
     mat beta = armaGetPr(mxGetFieldByNumber(prhs[30],0,12));
     vec betaV = armaGetPr(mxGetFieldByNumber(prhs[30],0,13));
     vec truePar = armaGetPr(mxGetFieldByNumber(prhs[30],0,14));
+    double seas = mxGetScalar(mxGetFieldByNumber(prhs[30],0,15));
     
     // Correcting dimensions of u (k x n)
     size_t k = u.n_rows;
@@ -147,6 +148,7 @@ void mexFunction(int nlhs, mxArray *plhs[], int nrhs, const mxArray *prhs[]){
     inputsBSM.typePar = typePar;
     inputsBSM.typeOutliers = typeOutliersp;
     inputsBSM.arma = arma;
+    inputsBSM.seas = seas;
     
     // Building model
     BSMmodel sysBSM = BSMmodel(inputsSS, inputsBSM); 
