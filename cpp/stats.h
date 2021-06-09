@@ -124,40 +124,55 @@ int adfTests(vec y, double nModels, string criterion){
 }
 // Harmonic regression
 void harmonicRegress(vec& y, mat& u, vec period, vec& beta, vec& stdBeta, vec& e){
-  int n = y.n_elem, k = u.n_rows, pos;
-  // if (season < 2) season = 4;
-  // vec line = regspace(1, 1, season / 2);
-  // vec period = season / line;
-  uvec harm = regspace<uvec>(1, 1, period.n_elem);
-  rowvec w = 2 * datum::pi / period.t();
-  // Checking for Nyquist frequency
-  bool minus = false;
-  if (any(w.row(0) == datum::pi)){
-    minus = true;
-  }
-  vec t = regspace(1, n);
-  int nHarm = harm.n_elem;
-  // Regressors (harmonics + constant + cuadratic trend + regressors)
-  mat X(n, nHarm * 2 + 4 - minus + k);
-  // Setting cos/sin regressors
-  X.cols(span(0, nHarm - 1)) = kron(w, t);
-  X.cols(span(nHarm, 2 * nHarm - 1 - minus)) = sin(X.cols(span(0, nHarm - 1 - minus)));
-  X.cols(span(0, nHarm - 1)) = cos(X.cols(span(0, nHarm - 1)));
-  pos = 2 * nHarm - minus;
-  X.col(pos).fill(1);
-  // Adding trend
-  t = t / n;
-  X.col(pos + 1) = t;
-  X.col(pos + 2) = pow(t, 2);
-  X.col(pos + 3) = pow(t, 3);
-  pos += 4;
-  // Exogenous inputs
-  if (k > 0){
-    X.cols(span(pos, pos + k - 1)) = u.submat(0, 0, k - 1, n - 1).t();
-  }
-  // Regression
-  double BIC, AIC, AICc;
-  regress(y, X, beta, stdBeta, e, BIC, AIC, AICc);
+    // It includes a cubic trend, a constant, harmonics and inputs
+    int n = y.n_elem, k = u.n_rows, pos;
+    // if (season < 2) season = 4;
+    // vec line = regspace(1, 1, season / 2);
+    // vec period = season / line;
+    vec t = regspace(1, n);
+    uvec harm;
+    rowvec w;
+    bool minus = false;
+    int nHarm = 0;
+    bool seasonal = true;
+    if (any(period == 1)){
+        seasonal = false;
+    } 
+    if (seasonal){
+        harm = regspace<uvec>(1, 1, period.n_elem);
+        w = 2 * datum::pi / period.t();
+        // Checking for Nyquist frequency
+        if (any(w.row(0) == datum::pi)){
+            minus = true;
+        }
+        nHarm = harm.n_elem;
+    }
+    // Regressors (harmonics + constant + cuadratic trend + regressors)
+    mat X(n, nHarm * 2 + 4 - minus + k);
+    if (seasonal){
+        // Setting cos/sin regressors
+        X.cols(span(0, nHarm - 1)) = kron(w, t);
+        X.cols(span(nHarm, 2 * nHarm - 1 - minus)) = sin(X.cols(span(0, nHarm - 1 - minus)));
+        X.cols(span(0, nHarm - 1)) = cos(X.cols(span(0, nHarm - 1)));
+    }
+    pos = 2 * nHarm - minus;
+    X.col(pos).fill(1);
+    // Adding trend
+    t = t / n;
+    X.col(pos + 1) = t;
+    X.col(pos + 2) = pow(t, 2);
+    X.col(pos + 3) = pow(t, 3);
+    pos += 4;
+    // Exogenous inputs
+    if (k > 0){
+        X.cols(span(pos, pos + k - 1)) = u.submat(0, 0, k - 1, n - 1).t();
+    }
+    // Regression
+    double BIC, AIC, AICc;
+    regress(y, X, beta, stdBeta, e, BIC, AIC, AICc);
+    AIC *= 1;
+    BIC *= 1;
+    AICc *= 1;
 }
 // Select harmonics of seasonal component
 void selectHarmonics(vec& y, mat& u, vec period, uvec& harmonics, vec& beta, string& isSeasonal){

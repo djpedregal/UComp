@@ -1830,7 +1830,7 @@ void BSMmodel::initParBsm(){
         aux = max(periods);
     }
     vec stdBeta, e, orders(2), betaHR;
-    double BIC, AIC, AICc;
+    //double BIC, AIC, AICc;
     // Estimating initial conditions for ARMA from innovations
     if (inputs.nPar(3) > 1){
         double ini = sum(inputs.nPar(span(0, 2))) + 1;
@@ -1838,14 +1838,11 @@ void BSMmodel::initParBsm(){
         inputs.typePar(aux).fill(3);
         orders(0) = inputs.ar;
         orders(1) = inputs.ma; //nPar(3) - inputs.ar - 1;
-        if (inputs.nPar(2) > 0){  // with seasonal component and inputs or no inputs
-            harmonicRegress(SSmodel::inputs.y, SSmodel::inputs.u, periods, betaHR, stdBeta, e);
-        } else if (inputs.nPar(4) > 0){ // with inputs and no seasonal
-            regress(SSmodel::inputs.y, SSmodel::inputs.u.cols(0, SSmodel::inputs.y.n_elem - 1).t(), betaHR, stdBeta, e, AIC, BIC, AICc);
-        } else {    // just ARMA
-            e = SSmodel::inputs.y;
-        }
-        linearARMA(e, orders, inputs.beta0ARMA, stdBeta);
+        // "Intelligent" initial conditions for ARMA
+        //harmonicRegress(SSmodel::inputs.y, SSmodel::inputs.u, periods, betaHR, stdBeta, e);
+        //linearARMA(e, orders, inputs.beta0ARMA, stdBeta);
+        // 0 initial conditions for ARMA
+        inputs.beta0ARMA.zeros(inputs.ar + inputs.ma);
         vec beta0aux, beta0aux1;
         uvec ind;
         vec armas = p0(ind);
