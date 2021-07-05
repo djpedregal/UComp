@@ -236,8 +236,8 @@ void SSmodel::estim(vec p){
   }
   if (inputs.verbose){
     double nSeconds = timer.toc();
-    Rprintf("%s", this->inputs.estimOk.c_str());
-    Rprintf("Elapsed time: %10.5f seconds\n", nSeconds);
+    printf("%s", this->inputs.estimOk.c_str());
+    printf("Elapsed time: %10.5f seconds\n", nSeconds);
   }
   this->inputs.p = p;
   this->inputs.objFunValue = objFunValue;
@@ -382,7 +382,7 @@ void SSmodel::validate(bool estimateHess){
       // //   cout << *i << " ";
       // // }
       // for (unsigned int i = 0; i < inputs.table.size(); i++){
-      //   Rprintf("%s ", inputs.table[i].c_str());
+      //   printf("%s ", inputs.table[i].c_str());
       // }
   // }
 }

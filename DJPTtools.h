@@ -115,7 +115,7 @@ void myError(const char* msg, bool R){
       //Rf_error(msg);
       //Rcerr << msg << endl;
     //} else {
-        Rprintf("%s", msg);
+        printf("%s", msg);
         p = p(4) * 2;
     //}
 }

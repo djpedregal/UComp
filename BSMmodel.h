@@ -286,9 +286,9 @@ void BSMmodel::checkModel(){
         (inputs.model[0] == 'l' || inputs.model[0] == 'd')){
         // Next 5 lines in every exception
         if (SSmodel::inputs.verbose){
-            Rprintf("    --\n");
-            Rprintf("    Estimation problems, trying again...\n");
-            Rprintf("    --\n");
+            printf("    --\n");
+            printf("    Estimation problems, trying again...\n");
+            printf("    --\n");
             printed = true;
         }
         SSinputs old = SSmodel::inputs;
@@ -318,9 +318,9 @@ void BSMmodel::checkModel(){
         (inputs.model[0] == 'l' || inputs.model[0] == 'd')){
         // Next 5 lines in every exception
         if (SSmodel::inputs.verbose && !printed){
-            Rprintf("    --\n");
-            Rprintf("    Estimation problems, trying again...\n");
-            Rprintf("    --\n");
+            printf("    --\n");
+            printf("    Estimation problems, trying again...\n");
+            printf("    --\n");
             printed = true;
         }
         SSinputs old = SSmodel::inputs;
@@ -413,8 +413,8 @@ void BSMmodel::estim(vec p){
     }
     if (SSmodel::inputs.verbose){
         double nSeconds = timer.toc();
-        Rprintf("%s", SSmodel::inputs.estimOk.c_str());
-        Rprintf("Elapsed time: %10.5f seconds\n", nSeconds);
+        printf("%s", SSmodel::inputs.estimOk.c_str());
+        printf("Elapsed time: %10.5f seconds\n", nSeconds);
     }
     SSmodel::inputs.p = p;
     SSmodel::inputs.objFunValue = objFunValue;
@@ -468,7 +468,7 @@ void BSMmodel::estimUCs(vector <string> allUCModels, uvec harmonics,
             AIC = BIC = AICc = datum::nan;
         }
         if (VERBOSE){
-            Rprintf(" %*s: %8.4f %8.4f %8.4f\n", 30, allUCModels[i].c_str(), AIC, BIC, AICc);
+            printf(" %*s: %8.4f %8.4f %8.4f\n", 30, allUCModels[i].c_str(), AIC, BIC, AICc);
         }
         if (inputs.criterion == "aic"){
             curCrit = AIC;
@@ -571,15 +571,15 @@ void BSMmodel::ident(string show){
     // UC identification
     double minCrit; // = 1e12, minCrit1;
     if (VERBOSE && (show == "head" || show == "both")){
-        Rprintf("------------------------------------------------------------\n");
+        printf("------------------------------------------------------------\n");
         if (SSmodel::inputs.outlier < 0){
-            Rprintf(" Identification started WITH outlier detection\n");
+            printf(" Identification started WITH outlier detection\n");
         } else {
-            Rprintf(" Identification started WITHOUT outlier detection\n");
+            printf(" Identification started WITHOUT outlier detection\n");
         }
-        Rprintf("------------------------------------------------------------\n");
-        Rprintf("          Model                       AIC      BIC     AICc\n");
-        Rprintf("------------------------------------------------------------\n");
+        printf("------------------------------------------------------------\n");
+        printf("          Model                       AIC      BIC     AICc\n");
+        printf("------------------------------------------------------------\n");
     }
     // Finding models to identify
     vector<string> allUCModels;
@@ -683,8 +683,8 @@ void BSMmodel::ident(string show){
         llikAug(SSmodel::inputs.p, &(SSmodel::inputs));
     }
     if (VERBOSE && !succeed){
-        Rprintf("                      Identification failed!!\n");
-        Rprintf("              Unable to find a proper model!!\n");
+        printf("                      Identification failed!!\n");
+        printf("              Unable to find a proper model!!\n");
     }
     // Selecting best ARMA
     if (inputs.arma && succeed){
@@ -766,9 +766,9 @@ void BSMmodel::ident(string show){
             inputs.beta0ARMA = beta1;
         }
         if (VERBOSE && outlierCopy > 0){
-            Rprintf("------------------------------------------------------------\n");
-            Rprintf(" Final model WITH outlier detection\n");
-            Rprintf("------------------------------------------------------------\n");
+            printf("------------------------------------------------------------\n");
+            printf(" Final model WITH outlier detection\n");
+            printf("------------------------------------------------------------\n");
         }
     }
     // bool correct = true;
@@ -780,9 +780,9 @@ void BSMmodel::ident(string show){
     }
     if (VERBOSE && (show == "tail" || show == "both")){
         double nSeconds = timer.toc();
-        Rprintf("------------------------------------------------------------\n");
-        Rprintf("  Identification time: %10.5f seconds\n", nSeconds);
-        Rprintf("------------------------------------------------------------\n");
+        printf("------------------------------------------------------------\n");
+        printf("  Identification time: %10.5f seconds\n", nSeconds);
+        printf("------------------------------------------------------------\n");
     }
     SSmodel::inputs.verbose = VERBOSE;
     // Updating inputs
@@ -1400,7 +1400,7 @@ void BSMmodel::validate(){
     //    cout << *i << " ";
     //}
     //for (unsigned int i = 0; i < SSmodel::inputs.table.size(); i++){
-    //  Rprintf("%s ", SSmodel::inputs.table[i].c_str());
+    //  printf("%s ", SSmodel::inputs.table[i].c_str());
     //}
 }
 // Disturbance smoother (to recover just trend and epsilons)
@@ -1494,8 +1494,8 @@ int BSMmodel::quasiNewtonBSM(std::function <double (vec& x, void* inputsFake)> o
     }
     // Head of table
     if (verbosef){
-        Rprintf(" Iter FunEval  Objective       Step\n");
-        Rprintf("%5.0i %5.0i %12.5f %12.5f\n", nIter, nOverallFuns, objNew, 1.0);
+        printf(" Iter FunEval  Objective       Step\n");
+        printf("%5.0i %5.0i %12.5f %12.5f\n", nIter, nOverallFuns, objNew, 1.0);
     }
     // Main loop
     uvec zeroVar, largestVar, allVar = find(inputs.typePar == 0); //, nonConst;
@@ -1582,7 +1582,7 @@ int BSMmodel::quasiNewtonBSM(std::function <double (vec& x, void* inputsFake)> o
         nOverallFuns += nFuns;
         // Verbose
         if (verbosef){
-            Rprintf("%5.0i %5.0i %12.5f %12.5f\n", nIter, nOverallFuns, objNew, alpha_i);
+            printf("%5.0i %5.0i %12.5f %12.5f\n", nIter, nOverallFuns, objNew, alpha_i);
         }
         // Stop Criteria
         flag = stopCriteria(crit, max(abs(gradNew)), objOld - objNew, 1e5, nIter, nOverallFuns);
@@ -1601,7 +1601,7 @@ int BSMmodel::quasiNewtonBSM(std::function <double (vec& x, void* inputsFake)> o
             flag = 0;
             if (SSmodel::inputs.verbose){
                 // cout << "    Trying new point..." << endl;
-                Rprintf("    Trying new point...\n");
+                printf("    Trying new point...\n");
             }
             xNew(allVar) = round(xNew(allVar)); //  % inputs.typePar;
             if (inputs.nPar(0) > 2){

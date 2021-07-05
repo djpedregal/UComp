@@ -49,8 +49,8 @@ int quasiNewton(std::function <double (vec& x, void* inputs)> objFun,
   nOverallFuns = nFuns + 1;
   // Head of table
   if (verbose){
-      Rprintf(" Iter FunEval  Objective       Step\n");
-      Rprintf("%5.0i %5.0i %12.5f %12.5f\n", nIter, nOverallFuns, objNew, 1.0);
+      printf(" Iter FunEval  Objective       Step\n");
+      printf("%5.0i %5.0i %12.5f %12.5f\n", nIter, nOverallFuns, objNew, 1.0);
   }
   // Main loop
   do{
@@ -66,7 +66,7 @@ int quasiNewton(std::function <double (vec& x, void* inputs)> objFun,
     nOverallFuns = nOverallFuns + nFuns;
     // Verbose
     if (verbose){
-        Rprintf("%5.0i %5.0i %12.5f %12.5f\n", nIter, nOverallFuns, objNew, alpha_i);
+        printf("%5.0i %5.0i %12.5f %12.5f\n", nIter, nOverallFuns, objNew, alpha_i);
     }
     // Stop Criteria
     // flag = stopCriteria(crit, gradNew, objOld - objNew, nIter, nOverallFuns);
