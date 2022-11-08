@@ -1210,12 +1210,16 @@ void outputTable(vec v, vector<string>& table){
   int n4 = n / 4;
   uvec ind;
   if (n4 < 168){
-    if (n < 30)
-        ind << 0 << 1 << 2 << 3 << endr;
-    else
-        ind << 0 << 3 << 7 << 11 << endr;
+     if (n < 30){
+        //ind << 0 << 1 << 2 << 3 << endr;
+        ind = {0, 1, 2, 3};
+     } else {
+        //ind << 0 << 3 << 7 << 11 << endr;
+        ind = {0, 3, 7, 11};
+     }
   } else {
-    ind << 0 << 3 << 7 << 11 << 23 << 167 << endr;
+    //ind << 0 << 3 << 7 << 11 << 23 << 167 << endr;
+    ind = {0, 3, 7, 11, 23, 167};
   }
   int ncoef = ind.max() + 1;
   vec acfCoef1, acfCoef2;
