@@ -109,32 +109,30 @@ function m = UCsetup(y,frequency,varargin)
     defaultU = []; addParameter(p,'u',defaultU,@isfloat);
     defaultPeriods = NaN; addParameter(p,'periods',defaultPeriods,@isfloat);
     defaultModel = '?/none/?/?'; addParameter(p,'model',defaultModel,@ischar);
-    defaultH = NaN; addParameter(p,'h',defaultH,@isfloat);
-    defaultOutlier = NaN; addParameter(p,'outlier',defaultOutlier,@isfloat);
+    defaultH = 9999; addParameter(p,'h',defaultH,@isfloat);
+    defaultOutlier = 9999; addParameter(p,'outlier',defaultOutlier,@isfloat);
     defaultTTest = false; addParameter(p,'tTest',defaultTTest,@islogical);
     defaultCriterion = 'aic'; addParameter(p,'criterion',defaultCriterion,@ischar);
     defaultVerbose = false; addParameter(p,'verbose',defaultVerbose,@islogical);
     defaultStepwise = false; addParameter(p,'stepwise',defaultStepwise,@islogical);
     defaultP0 = -9999.9; addParameter(p,'p0',defaultP0,@isfloat);
     %defaultCLlik = true; addParameter(p,'cLlik',defaultCLlik,@islogical);
-    defaultArma = true; addParameter(p,'arma',defaultArma,@islogical);
+    defaultArma = false; addParameter(p,'armaIdent',defaultArma,@islogical);
+    defaultLambda = 1.0; addParameter(p,'lambda',defaultLambda,@isfloat);
+    defaultTVP = []; addParameter(p,'TVP',defaultTVP,@isfloat);
+    defaultTrendOptions = 'none/rw/llt/dt'; addParameter(p,'trendOptions',defaultTrendOptions,@ischar);
+    defaultSeasonalOptions = 'none/equal/different'; addParameter(p,'seasonalOptions',defaultSeasonalOptions,@ischar);
+    defaultIrregularOptions = 'none/arma(0,0)'; addParameter(p,'irregularOptions',defaultIrregularOptions,@ischar);
+    defaultMSOE = false; addParameter(p,'MSOE',defaultVerbose,@islogical);
+    defaultPTSnames = false; addParameter(p,'PTSnames',defaultVerbose,@islogical);
 
     parse(p,y,frequency,varargin{:});
     
-    h = p.Results.h;
-    if(~isnan(h) && floor(h) ~= h)
-        warning('h must be integer. It will be used its integer part.')
-        h = floor(h);
-    end
+%     h = p.Results.h;
+%     if(~isnan(h) && floor(h) ~= h)
+%         h = floor(h);
+%     end
 
-    u = p.Results.u;
-    periods = p.Results.periods;
-    if(frequency>1 && isnan(periods(1)))
-        periods = frequency./(1:floor(frequency/2));
-    elseif(isnan(periods(1)) && frequency<=1)
-        periods=1;
-    end
-    periods=periods';
     model = p.Results.model;
     outlier = p.Results.outlier;
     tTest = p.Results.tTest;
@@ -143,107 +141,65 @@ function m = UCsetup(y,frequency,varargin)
     stepwise = p.Results.stepwise;
     p0 = p.Results.p0(:);
     %cLlik = p.Results.cLlik;
-    arma = p.Results.arma;
+    arma = p.Results.armaIdent;
+    h = p.Results.h;
+    lambda = p.Results.lambda;
+    TVP = p.Results.TVP;
+    MSOE = p.Results.MSOE;
+    PTSnames = p.Results.PTSnames;
 
-    rhos = NaN;
-    p = NaN;
-
-    %Converting u vector to matrix
-    n = length(y);
-    [k, cu] = size(u);
-    if (cu > 0 && cu < k)
+%     rhos = NaN;
+%     p = NaN;
+    % Checking u
+    u = p.Results.u;
+    if size(u, 1) > size(u, 2)
         u = u';
     end
-    if (isempty(u)) 
-        u = zeros(1, 2);
-    else
-        h = size(u, 2) - n;
+    if isempty(u)
+        u = [0 0];
     end
-    if(size(u, 2) > 2 && n > size(u, 2))
-        error('Length of output data never could be greater than length of inputs');
+    if any(size(y) == 2)
+        error('ERROR: output varialbe should be a scalar time series!!');
     end
-    
-    % Removing nans at beginning or end
-    if(isnan(y(1)) || isnan(y(n)))
-        ind = find(~isnan(y));
-        minInd = min(ind);
-        maxInd = max(ind);
-        y = y(minInd:maxInd);
-        if(size(u,2) > 2)
-            u = u(:,minInd:maxInd);
-        end
+    % Checking periods
+    periods = p.Results.periods;
+    if(frequency>1 && isnan(periods(1)))
+        periods = frequency./(1:floor(frequency/2));
+    elseif(isnan(periods(1)) && frequency<=1)
+        periods=1;
+    end
+    periods = periods(:);
+    if isnan(lambda)
+        lambda = 9999.99;
+    end
+%     periods=periods';    periods = p.Results.periods;
+%     if (is.ts(y) && is.na(periods) && frequency(y) > 1){
+%         periods = frequency(y) / (1 : floor(frequency(y) / 2))
+%     } else if (is.ts(y) && is.na(periods)){
+%         periods = 1
+%     } else if (!is.ts(y) && is.na(periods)){
+%         stop("Input \"periods\" should be supplied!!")
+%     }
+    rhos = ones(length(periods), 1);
+    if isempty(TVP) && sum(u) ~= 0
+        TVP = zeros(1, size(u, 1));
+    end
+    if isempty(TVP)
+        TVP = -9999.99;
     end
 
-    %Checking periods
-    if(isnan(periods(1)))
-        error('Input "periods" should be supplied');
-    end  
-
-    %If period == 1 (anual) then change seasonal model to "none"
-    if(periods(1) == 1)
-        comps = strsplit(lower(model),'/');
-        if(length(comps) == 3)
-            model = strcat(comps{1},'/none/',comps{3});
-        else
-            model = strcat(comps{1},'/',comps{2},'/none/',comps{4});
-        end
-    end
-    
-    %Adding cycle in case of T/S/I model specification
-    nComp = length(regexp(model,'/'));
-    if(nComp == 2)
-        k = strfind(model,'/'); 
-%        model = insertAfter(model,k(1),'none/');
-        model = [model(1 : k(1)) 'none/' model(k(1) + 1 : end)];
-    end
-    
-    %Checking model
-    model = lower(model);
-    if(noModel(model,periods))
-        error('No model specified');
-    end
-    if(any(uint8(model) == uint8('?')) && ~isnan(p0(1)))
-        p0 = -9999.9; 
-    end
-    if(any(uint8(model) == uint8('?')) && ~isnan(p(1)))
-       p = NaN;
-    end
-    if(containsO(model,'arma') && ~containsO(model,'\('))
-        model = strcat(model,'(0,0)');
-    end
-    if(containsO(model,'arma') && ~containsO(model(length(model)-1:length(model)),'\)'))
-        model = strcat(model,')');
-    end
-    
-    %Checking horizon 
-    if(isnan(h))
-        h = 18;
-    end
-    
-    %Set rhos
-    if(isnan(rhos(1)))
-        rhos = ones(length(periods),1);
-    end
-    
-    %Checking cycle
-    modelCell = strsplit(lower(model),'/');
-    if(modelCell{2} == '?')
-        freq = max(periods);
-        modelCell{2} = strcat(num2str(-4*freq),'?');
-    elseif(modelCell{2}(1) ~= '+' && modelCell{2}(1) ~= '-' && modelCell{2}(1) ~= 'n')
-        modelCell{2} = strcat('+', modelCell{2});
-    end
-    model = [modelCell{1} '/' modelCell{2} '/' modelCell{3} '/' modelCell{4}];
-    
     %Output:
     hidden = struct('d_t',NaN,'estimOk','Not estimated','objFunValue',0,...
         'innVariance',1,'nonStationaryTerms',NaN,'ns',NaN,'nPar',NaN,'harmonics',NaN,...
         'constPar',NaN,'typePar',NaN,'cycleLimits',NaN,'typeOutliers',-ones(1,2), ...
-        'beta',NaN,'betaV',NaN,'truePar',NaN,'seas',frequency);
+        'beta',NaN,'betaV',NaN,'truePar',NaN,'seas',frequency,'iter',0,'MSOE',MSOE,...
+        'PTSnames',PTSnames);
     m = struct('y',y,'u',u,'model',model,'h',h,'comp',NaN,'compV',NaN,'v',NaN, ...
         'yFit',NaN,'yFor',NaN,'yFitV',NaN,'yForV',NaN,'a',NaN,'P',NaN,'eta',NaN,'eps',NaN,...
         'table','','outlier',-abs(outlier),'tTest',tTest,'criterion',criterion,...
         'periods',periods,'rhos',rhos,'verbose',verbose,'stepwise',stepwise,'p0',p0,...
-        'criteria',NaN,'arma',arma,'grad',NaN,'covp',NaN,'p',p,'hidden',hidden);
+        'criteria',NaN,'arma',arma,'grad',NaN,'covp',NaN,'p',NaN, 'lambda', lambda, 'TVP', TVP, ...
+        'trendOptions', p.Results.trendOptions, 'seasonalOptions', p.Results.seasonalOptions, ...
+        'irregularOptions', p.Results.irregularOptions, 'hidden',hidden);
 
 end

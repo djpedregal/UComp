@@ -1,0 +1,1 @@
+function a = generar2(n, dist)    if nargin < 1        n = 3000;    end    if nargin < 2        dist = 'unif';    end    if (dist == "unif"){        a = rand(n, 1);    else        a = randn(n, 1);    endend

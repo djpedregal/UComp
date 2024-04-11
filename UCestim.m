@@ -62,12 +62,18 @@ function sys = UCestim(sys)
 
     [p,p0,model,yFor,periods,rhos,yForV,estimOk,harmonics,...
         cycleLimits,nonStationaryTerms,beta,betaV,u,typeOutliers,...
-        criteria,d_t,innVariance,objFunValue,grad,constPar,typePar,ns,nPar] = UCompC('estimate',...
+        criteria,d_t,innVariance,objFunValue,grad,constPar,typePar,...
+        ns,nPar,h,outlier,Iter,lambda] = UCompC('estimate',...
         sys.y,u,sys.model,sys.h,sys.comp,sys.compV,sys.v,sys.yFit,sys.yFor,sys.yFitV,...
         sys.yForV,sys.a,sys.P,sys.eta,sys.eps,sys.table,sys.outlier,sys.tTest,sys.criterion,...
         sys.periods,sys.rhos,sys.verbose,sys.stepwise,sys.p0,sys.criteria,sys.arma,sys.grad,...
-        sys.covp,sys.p,sys.hidden);
+        sys.covp,sys.p,sys.lambda,sys.TVP,sys.trendOptions, sys.seasonalOptions, ...
+        sys.irregularOptions,sys.hidden);
 
+    if (model == "error")
+        sys.model = "error";
+        return;
+    end
     if(~isempty(yFor))
         sys.yFor = yFor;
         sys.yForV = yForV;
@@ -93,6 +99,8 @@ function sys = UCestim(sys)
     sys.hidden.beta = beta;
     sys.hidden.betaV = betaV;
     sys.periods = periods;
+    sys.h = h;
+    sys.outlier = outlier;
     sys.rhos = rhos;
     if isempty(sys.rhos)
         sys.rhos = ones(length(sys.periods), 1);
@@ -102,6 +110,8 @@ function sys = UCestim(sys)
     sys.hidden.ns = ns;
     sys.hidden.nPar = nPar;
     sys.hidden.harmonics = harmonics;
+    sys.hidden.iter = Iter;
+    sys.hidden.lambda = lambda;
     if isempty(sys.hidden.harmonics)
         sys.hidden.harmonics = nan(length(sys.periods), 1);
     end
@@ -110,7 +120,8 @@ function sys = UCestim(sys)
     else
             sys.criteria = reshape(criteria, 4, 1);
     end
-    if(~isnan(sys.outlier))
+    if(~isnan(sys.outlier) && ~isempty(u))
+        nu = length(sys.y) + sys.h;
         k = numel(u)/nu;
         nOut = k-kInitial;
         if(nOut > 0)

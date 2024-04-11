@@ -101,8 +101,12 @@ function m = UC(y,frequency,varargin)
 
     m = UCsetup(y,frequency,varargin{:});
     m = UCestim(m);
-    m = UCdisturb(m);
+    if m.model == "error"
+        return;
+    end
     m = UCvalidate(m, m.verbose);
+    m = UCsmooth(m);
+    m = UCdisturb(m);
     m = UCcomponents(m);
     
 end

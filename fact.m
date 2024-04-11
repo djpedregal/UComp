@@ -1,0 +1,1 @@
+function resultado = fact(n)    resultado = 1;    for i = 2 : n        resultado = resultado * i;end

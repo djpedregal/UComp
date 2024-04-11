@@ -23,8 +23,10 @@ if exist('UCompC.cpp')
 end
 if exist('OCTAVE_VERSION', 'builtin')
   copyfile('cpp/UCompCOctave.cpp', 'UCompC.cpp', 'f');
+  copyfile('cpp/ETSCOctave.cpp', 'ETSc.cpp', 'f');
 else
   copyfile('cpp/UCompCMatlab.cpp', 'UCompC.cpp', 'f');
+  copyfile('cpp/ETSCMatlab.cpp', 'ETSc.cpp', 'f');
 end
 % filename = [currentPath '/' platform '/UCompC.cpp'];
 if ispc
@@ -34,20 +36,26 @@ if ispc
     if isempty(lapackPath)
         try
             mex('UCompC.cpp', ['-I' armadilloPath '/include'], '-llapack', '-lblas');
+            mex('ETSc.cpp', ['-I' armadilloPath '/include'], '-llapack', '-lblas');
         catch ME
             mex('UCompC.cpp', ['-I' armadilloPath '/include'], '-lopenblas');
+            mex('ETSc.cpp', ['-I' armadilloPath '/include'], '-lopenblas');
         end
     else
         try
             mex('UCompC.cpp', ['-I' armadilloPath '/include'], ['-L' lapackPath], '-llapack', '-lblas');
+            mex('ETSc.cpp', ['-I' armadilloPath '/include'], ['-L' lapackPath], '-llapack', '-lblas');
         catch ME
             mex('UCompC.cpp', ['-I' armadilloPath '/include'], ['-L' lapackPath], '-lopenblas');
+            mex('ETSc.cpp', ['-I' armadilloPath '/include'], ['-L' lapackPath], '-lopenblas');
         end
     end
 else
 % Mex mac or Linux
     mex('UCompC.cpp', ['-I' armadilloPath '/include'], '-llapack', '-lblas');
+    mex('ETSc.cpp', ['-I' armadilloPath '/include'], '-llapack', '-lblas');
 end
 delete('UCompC.cpp');
+delete('ETSc.cpp');
 cd(initialPath);
 end

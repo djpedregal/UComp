@@ -18,7 +18,7 @@ function cycle = UChp(y, frequency, lambda)
     lambda = 1600;
   end
   m = UCsetup(y, frequency, 'model', 'irw/none/arma(0,0)');
-  m.p = [log(1 / lambda) / 2; 0];
+  m.hidden.truePar = [log(1 / lambda) / 2; 0];
   m = UCcomponents(m);
   if exist('OCTAVE_VERSION', 'builtin')
     cycle = y - m.comp(1 : length(y), 1);

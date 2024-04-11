@@ -35,14 +35,15 @@ function sys = UCvalidate(sys, printScreen)
       printScreen = 1;
     end
     
-    y = sys.y;
-    u = sys.u;
+%     y = sys.y;
+%     u = sys.u;
 
-    [v,table,coef] = UCompC('validate',sys.y,u,sys.model,sys.h,sys.comp,sys.compV,sys.v,sys.yFit,sys.yFor,sys.yFitV,...
+    [v,table,coef] = UCompC('validate',sys.y,sys.u,sys.model,sys.h,sys.comp,sys.compV,sys.v, ...
+        sys.yFit,sys.yFor,sys.yFitV,...
         sys.yForV,sys.a,sys.P,sys.eta,sys.eps,sys.table,sys.outlier,sys.tTest,sys.criterion,...
         sys.periods,sys.rhos,sys.verbose,sys.stepwise,sys.p0,sys.criteria,sys.arma,sys.grad,...
-        sys.covp,sys.p,sys.hidden);
-
+        sys.covp,sys.hidden.truePar,sys.lambda,sys.TVP,sys.trendOptions, sys.seasonalOptions, ...
+        sys.irregularOptions,sys.hidden);
 
     sys.table = table;
     sys.v = v;
