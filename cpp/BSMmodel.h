@@ -1,57 +1,79 @@
-/*************************
+/*
  Basic Structural models
- Needs Armadillo
- Needs SSpace.h
- Needs ARMAmodel.h
- Needs BSMident.h
- Needs stats.h
- Needs DJPTtools.h
- ***************************/
-bool RUNNING_FROM_R = false;
-struct BSMinputs{
-    string model = "llt/none/equal/arma(0,0)", // model to fit
-        criterion = "aic", // identification criterion
-        trend,   // type of trend
-        cycle,   // type of cycle
-        seasonal,  // type of seasonal component
-        irregular, // type of irregular
-        cycle0;  // type of cycle without numbers
-    int ar, ma;     // AR and MA orders of irregular component
-    double seas;    // seasonal period
-    vec periods,    // vector of periods for harmonics
-        rhos,       // vector indicating whether period is cyclical or seasonal
-        ns,         // number of states in components (trend, cycle, seasonal, irregular)
-        nPar,       // number of parameters in components (trend, cycle, seasonal, irregular)
-        p0Return,   // initial parameters user understandable
-        typePar,    // type of parameter (0: variance; 
-                    //        -1: damped of trend; 
-                    //         1: cycle rhos; 
-                   //          2: cycle periods; 
-                   //          3: ARMA; 
-                   //          4: inputs)
-        eps,       // observation perturbation 
-        beta0ARMA, // initial estimates of ARMA model (without variance)
-        constPar;   // constrained parameters (0: not constrained; 
-    //                         1: concentrated-out; 
-    //                         2: variance constrained to 0;
-    //                         3: alpha constrained to 0 or 1)
-    uvec harmonics; // vector with the indices of harmonics selected
-    mat comp,       // estimated components
-        compV,      // variance of components
-        typeOutliers, // Matrix with type of outliers and sample of each outlier
-        cycleLimits; // limits for period of cycle estimation
-    bool stepwise,  // stepwise identification or brute one
-         tTest = false, // unit roots test or not for identification
-         arma = true,   // check arma models for irregular component
-         pureARMA = false; // Pure ARMA model flag
-    vector<string> parNames; // Parameter names
+ Additional inputs for R, MATLAB, python:
+    TVP
+    trendOptions
+    seasonalOptions
+    irregularOptions
+*/
+#include <iostream>
+#include <math.h>
+#include <string.h>
+#include <armadillo>
+using namespace arma;
+using namespace std;
+#include "DJPTtools.h"
+#include "optim.h"
+#include "stats.h"
+#include "boxcox.h"
+#include "SSpace.h"
+#include "ARMAmodel.h"
+
+struct BSMmodel{
+    // INPUTS:
+    string model = "llt/none/equal/arma(0,0)",  // model to fit
+        criterion = "aic";                      // identification criterion
+    bool stepwise,              // stepwise identification or brute one
+         tTest,                 // unit roots test or not for identification
+         arma;                  // check arma models for irregular component
+    vec periods,                // vector of periods for harmonics
+        TVP;                    // vector of zeros and ones to allocate position of TVP parameters
+    bool MSOE = false,          // MSOE model or BSM
+         PTSnames = false;      // PTS model names or UC
+    // OUTPUTS:
+    string trend,               // type of trend
+        cycle,                  // type of cycle
+        seasonal,               // type of seasonal component
+        irregular,              // type of irregular
+        cycle0,                 // type of cycle without numbers
+        compNames = "",         // components names
+        trendOptions = "none/rw/llt/dt",          // trend options to select amongst (none/rw/llt/td/dt/srw)
+        seasonalOptions = "none/equal/different", // seasonal options to select amongst (none/equal/different/linear)
+        irregularOptions = "none/arma(0,0)";      // irregular components (none/arma(p,q))
+    int ar = 0, ma = 0;         // AR and MA orders of irregular component
+    double seas,                // seasonal period
+           lambda = 1.0;              // Box-Cox transformation parameter
+    vec rhos,                   // vector indicating whether period is cyclical or seasonal
+        ns,                     // number of states in components (trend, cycle, seasonal, irregular)
+        nPar,                   // number of parameters in components (trend, cycle, seasonal, irregular)
+        p0Return,               // initial parameters user understandable
+        typePar,                // type of parameter (0: variance;
+                                //         -1: damped of trend;
+                                //          1: cycle rhos;
+                                //          2: cycle periods;
+                                //          3: ARMA;
+                                //          4: inputs)
+        eps,                    // observation perturbation
+        beta0ARMA,              // initial estimates of ARMA model (without variance)
+        constPar;               // constrained parameters (0: not constrained;
+                //                         1: concentrated-out;
+                //                         2: variance constrained to 0;
+                //                         3: alpha constrained to 0 or 1)
+    uvec harmonics;             // vector with the indices of harmonics selected
+    mat comp,                   // estimated components
+        compV,                  // variance of components
+        typeOutliers,           // Matrix with type of outliers and sample of each outlier
+        cycleLimits;            // limits for period of cycle estimation
+    bool pureARMA = false,      // Pure ARMA model flag
+         Drift = false;         // trend with drift
+    vector<string> parNames;    // Parameter names
 };
 /**************************
  * Model CLASS BSM
  ***************************/
-class BSMmodel : public SSmodel{
+class BSMclass : public SSmodel{
 private:
-    BSMinputs inputs;
+    BSMmodel inputs;
     // Set model
     void setModel(string, vec, vec, bool);
     // Count states and parameters of BSM model
@@ -68,18 +90,23 @@ private:
     void estimUCs(vector<string>, uvec, double&, bool, double, int);
 public:
     // Constructors
-    BSMmodel(SSinputs, BSMinputs);
+    BSMclass();
+    BSMclass(SSinputs, BSMmodel);
+    // Convert to MSOE
+    void bsm2msoe();
     // Parameter names
     void parLabels();
+    // Interpolation of initial NaN values
+    void interpolate(int);
     //Estimation
-    void estim();
-    void estim(vec);
+    void estim(bool);
+    void estim(vec, bool);
     // Identification
-    void ident(string);
+    void ident(string, bool);
     // Outlier detection
-    void estimOutlier(vec);
+    void estimOutlier(vec, bool);
     // Check whether re-estimation is necessary
-    void checkModel();
+    void checkModel(uvec);
     // Components
     void components();
     // Covariance of parameters (inverse of hessian)
@@ -87,16 +114,16 @@ public:
     // Finding true parameter values out of transformed parameters
     vec parameterValues(vec);
     // Validation of BSM models
-    void validate();
+    void validate(bool);
     // Disturbance smoother (to recover just trend and epsilons)
     void disturb();
     // Get data
-    BSMinputs getInputs(){
+    BSMmodel getInputs(){
         parLabels();
         return inputs;
     }
     // Set data
-    void setInputs(BSMinputs inputs){
+    void setInputs(BSMmodel inputs){
         this->inputs = inputs;
     }
     //Print inputs on screen
@@ -105,6 +132,19 @@ public:
 /***************************************************
  * Auxiliar function declarations
  ****************************************************/
+// Main aux function
+void BSMaux(vec, mat, string, int, double, bool, string, vec, bool, bool,
+         vec, bool, string, string, string, vec, double, SSinputs&, BSMmodel&);
+// Main function
+void BSM(vec, mat, string, int, double, bool, string, vec, bool, bool,
+         vec, bool, string, string, string, vec, double);
+// Convert UC model to PTS
+string UC2PTS(string);
+// States names for filtering and smoothing
+string stateNames(BSMmodel);
+// Pre-processing
+bool preProcess(vec, mat&, string&, int&, double&, string&,
+                vec, vec, int&, string, string, string, vec&, double&);
 // Variance matrices in standard BSM
 void bsmMatrices(vec, SSmatrix*, void*);
 // Variance matrices in standard BSM for true parameters
@@ -125,33 +165,638 @@ void findUCmodels(string, string, string, string, vector<string>&);
 void modelCorrect(string&, string&, string&, vec&, vec&);
 // Calculate limits for cycle periods for estimation
 void calculateLimits(int, vec, vec, mat&, double);
+// Find first observation of n non-nan contiguous values
+int findFirst(vec, int);
+// Show SS model
+void showSS(SSmatrix);
+// Show BSMmodel
+void showBSM(BSMmodel);
 
 /****************************************************
  // BSM implementations for univariate UC models
  ****************************************************/
-// Constructor
-BSMmodel::BSMmodel(SSinputs data, BSMinputs inputs) : SSmodel(data){
-    inputs.rhos = ones(size(inputs.periods));
-    lower(inputs.criterion);
+// Constructors
+BSMclass::BSMclass(){
+}
+BSMclass::BSMclass(SSinputs data, BSMmodel inputs) : SSmodel(data){
     SSmodel::inputs = data;
     this->inputs = inputs;
+    this->inputs.rhos = ones(size(inputs.periods));
     this->inputs.cycleLimits.resize(1, 1);
     this->inputs.cycleLimits(0, 0) = datum::nan;
     vec reserve = inputs.constPar;
     setModel(inputs.model, inputs.periods, inputs.rhos, true);
-    if (!reserve.has_nan())
+    if (!reserve.has_nan() && reserve.n_elem > 0)
         this->inputs.constPar = reserve;
+    this->inputs.harmonics = regspace<uvec>(0, inputs.periods.n_elem - 1);
 }
+// main aux function
+void BSMaux(vec y, mat u, string model, int h, double outlier, bool tTest, string criterion,
+         vec periods, bool verbose, bool stepwise, vec p0, bool arma, string trendOptions,
+         string seasonalOptions, string irregularOptions, vec TVP, double lambda,
+         SSinputs& inputsSS, BSMmodel& inputsBSM){
+    // Correcting dimensions of u (k x n)
+    size_t k = u.n_rows;
+    size_t n = u.n_cols;
+    if (k > n){
+        u = u.t();
+    }
+    if (k == 1 && n == 2){
+        u.resize(0);
+    }
+    int iniObs = max(periods);
+    // Pre-processing
+    bool errorExit = preProcess(y, u, model, h, outlier, criterion, periods, p0, iniObs,
+                                trendOptions, seasonalOptions, irregularOptions, TVP, lambda);
+    if (sum(TVP) > 0)
+        outlier = 0;
+    if (errorExit)
+        printf("%d", errorExit);
+    // End of pre-processing
+    inputsSS.y = y.rows(iniObs, y.n_elem - 1);
+    mat uIni;
+    if (iniObs > 0 && u.n_rows > 0){ // && command == "estimate"){
+        inputsSS.u = u.cols(iniObs, u.n_cols - 1);
+        uIni = u.cols(0, iniObs - 1);
+    } else {
+        inputsSS.u= u;
+    }
+    inputsBSM.model = model;
+    inputsBSM.periods = periods;
+    inputsBSM.rhos = ones(periods.n_elem);
+    inputsSS.h = h;
+    inputsBSM.tTest = tTest;
+    inputsBSM.criterion = criterion;
+    inputsBSM.trendOptions = trendOptions;
+    inputsBSM.seasonalOptions = seasonalOptions;
+    inputsBSM.irregularOptions = irregularOptions;
+    inputsBSM.TVP = TVP;
+    inputsSS.p0 = p0;
+    inputsSS.outlier = outlier;
+    inputsSS.verbose = verbose;
+    inputsBSM.seas = max(periods);
+    inputsBSM.stepwise = stepwise;
+    inputsBSM.harmonics = regspace<uvec>(0, periods.n_elem - 1);
+    inputsBSM.arma = arma;
+
+    // BoxCox transformation
+    if (lambda == 9999.9)
+        lambda = testBoxCox(y, periods);
+    inputsBSM.lambda = lambda;
+    inputsSS.y = BoxCox(inputsSS.y, inputsBSM.lambda);
+}
+// Main function
+void BSM(vec y, mat u, string model, int h, double outlier, bool tTest, string criterion,
+         vec periods, bool verbose, bool stepwise, vec p0, bool arma, string trendOptions,
+         string seasonalOptions, string irregularOptions, vec TVP, double lambda){
+    // y:         otuput data (one time series)
+    // u:         input data (excluding constant)
+    // model:     string with three or four letters with model for error, trend and seasonal
+    // h:         forecasting horizon (if inputs it is recalculated as the length differences
+    //            between u and y
+    // outlier:   standard deviation for outlier detection
+    // tTest:     use of unit root tests for stationarity detection true/false
+    // criterion: information criterion to use in identification (aic / bic / aicc)
+    // periods:   seasonal period
+    // verbose:   shows estimation intermediate results
+    // stepwise:  use of stepwise faster identification procedure true / false
+    // p0:        initial values for parameters to start search
+    // arma:      testing for arma innovations true / false
+    // trendOptions:     set of trends to choose among (none/rw/llt/irw/dt/td)
+    // seasonalOptions:  set of seasonal models to choose among (none/equal/different)
+    // irregularOptions: set of irregular models to choose amongst (none/arma(0,0)/arma(0,1)/...)
+    // TVP:       vector of zeros and ones where to allocate TVP parameters for inputs
+    // lambda:    BoxCox transformation value (9999.9 for estimation)
+
+
+    /*
+    // Correcting dimensions of u (k x n)
+    size_t k = u.n_rows;
+    size_t n = u.n_cols;
+    if (k > n){
+        u = u.t();
+    }
+    if (k == 1 && n == 2){
+        u.resize(0);
+    }
+    int iniObs = max(periods);
+    // Setting inputs
+    SSinputs inputsSS;
+    BSMmodel inputsBSM;
+    // Pre-processing
+    bool errorExit = preProcess(y, u, model, h, outlier, criterion, periods, p0, iniObs,
+                                trendOptions, seasonalOptions, irregularOptions, TVP, lambda);
+    if (sum(TVP) > 0)
+        outlier = 0;
+    if (errorExit)
+        printf("%d", errorExit);
+    // End of pre-processing
+    inputsSS.y = y.rows(iniObs, y.n_elem - 1);
+    mat uIni;
+    if (iniObs > 0 && u.n_rows > 0){ // && command == "estimate"){
+        inputsSS.u = u.cols(iniObs, u.n_cols - 1);
+        uIni = u.cols(0, iniObs - 1);
+    } else {
+        inputsSS.u= u;
+    }
+    inputsBSM.model = model;
+    inputsBSM.periods = periods;
+    inputsBSM.rhos = ones(periods.n_elem);
+    inputsSS.h = h;
+    inputsBSM.tTest = tTest;
+    inputsBSM.criterion = criterion;
+    inputsBSM.trendOptions = trendOptions;
+    inputsBSM.seasonalOptions = seasonalOptions;
+    inputsBSM.irregularOptions = irregularOptions;
+    inputsBSM.TVP = TVP;
+    inputsBSM.MSOE = false;
+    inputsSS.p0 = p0;
+    inputsSS.outlier = outlier;
+    inputsSS.verbose = verbose;
+    inputsBSM.seas = max(periods);
+    inputsBSM.stepwise = stepwise;
+    inputsBSM.harmonics = regspace<uvec>(0, periods.n_elem - 1);
+    inputsBSM.arma = arma;
+
+    // BoxCox transformation
+    if (lambda == 9999.9)
+        lambda = testBoxCox(y, periods);
+    inputsBSM.lambda = lambda;
+    inputsSS.y = BoxCox(inputsSS.y, inputsBSM.lambda);
+    */
+
+    SSinputs inputsSS;
+    BSMmodel inputsBSM;
+    BSMaux(y, u, model, h, outlier, tTest, criterion, periods, verbose, stepwise, p0, arma, trendOptions,
+        seasonalOptions, irregularOptions, TVP, lambda, inputsSS, inputsBSM);
+    // Building model
+    BSMclass m = BSMclass(inputsSS, inputsBSM);
+
+    // Estimating
+    BSMmodel inputs = m.getInputs();
+    if (inputs.irregular == "?" || inputs.trend == "?" || inputs.seasonal == "?" || inputs.arma)
+        m.ident("both", verbose);
+    else {
+        m.estim(verbose);
+    }
+    // next lines to correct cycles
+    BSMmodel aux2 = m.getInputs();
+    if (aux2.cycle[0] != 'n' && aux2.cycle != "?"){
+        string model1 = aux2.model, cycle = aux2.cycle, cycle0 = aux2.cycle0;
+        vec periods = aux2.periods, rhos = aux2.rhos;
+        modelCorrect(model, cycle, inputs.cycle0, periods, rhos);
+        aux2.model= model1, aux2.cycle= cycle, aux2.cycle0= cycle0;
+        aux2.periods = periods, aux2.rhos = rhos;
+        m.setInputs(aux2);
+    }
+    printf("empiezo validated:\n");
+    m.validate(true);
+    printf("empiezo forecast:\n");
+    m.forecast();
+    printf("empiezo components:\n");
+    m.components();
+    //BSMmodel aux = m.getInputs();
+    //aux.comp.print("components 358");
+    printf("empiezo filter:\n");
+    m.filter();
+    printf("empiezo distturb:\n");
+    m.disturb();
+}
+// Pre-processing
+bool preProcess(vec y, mat& u, string& model, int& h, double& outlier, 
+                string& criterion, vec periods, vec p0, int& iniObs,
+                string trendOptions, string seasonalOptions, string irregularOptions,
+                vec& TVP, double& lambda){
+    // Looking for first observation for estimation
+    // if (y.has_nan()){
+    //     uword nskip = 2 * periods.n_elem + 3;
+    //     uvec indFinite, poly(3, fill::ones), aux3;
+    //     indFinite = find_finite(y);
+    //     aux3 = conv(diff(indFinite), poly);
+    //     //iniObs = indFinite(min(find(aux3.rows(2, aux3.n_elem - 1) == 3))) + iMin;
+    //     iniObs = indFinite(min(find(aux3.rows(nskip - 1, aux3.n_elem - 1) == nskip))) + iMin;
+    // } else {
+    //     iniObs = 0;
+    // }
+    // vec p(1);
+    // p.fill(datum::nan);
+    // Correcting inputs by user
+    iniObs = findFirst(y, iniObs);
+    lower(criterion);
+    deblank(model);
+    lower(model);
+    lower(trendOptions);
+    lower(irregularOptions);
+    lower(seasonalOptions);
+    // checking trendOptions
+    vector<string> aux;
+    bool alright = false; uword ind = 0;
+    chopString(trendOptions, "/", aux);
+    do{
+        alright = false;
+        if (aux[ind] == "none")
+            alright = true;
+        else if (aux[ind] == "rw")
+            alright = true;
+        else if (aux[ind] == "irw")
+            alright = true;
+        else if (aux[ind] == "llt")
+            alright = true;
+        else if (aux[ind] == "dt")
+            alright = true;
+        else if (aux[ind] == "srw")   // Hyndman damped
+            alright = true;
+        else if (aux[ind] == "td")
+            alright = true;
+        ind++;
+    } while(alright == true && ind < aux.size());
+    if (alright == false){
+        printf("%s", "ERROR: trendOptions wrongly set (none/rw/irw/llt/dt/td/hd)!!!\n");
+        return true;
+    }
+    // checking seasonalOptions
+    ind = 0;
+    if (max(periods) == 1)
+        seasonalOptions = "none";
+    chopString(seasonalOptions, "/", aux);
+    do{
+        alright = false;
+        if (aux[ind] == "none")
+            alright = true;
+        else if (aux[ind] == "equal")
+            alright = true;
+        else if (aux[ind] == "different")
+            alright = true;
+        else if (aux[ind] == "linear")
+            alright = true;
+        ind++;
+    } while(alright == true && ind < aux.size());
+    if (alright == false){
+        printf("%s", "ERROR: seasonalOptions wrongly set (none/equal/different/linear)!!!\n");
+        return true;
+    }
+    // checking irregularOptions
+    alright = false; ind = 0;
+    chopString(irregularOptions, "/", aux);
+    do{
+        alright = false;
+        if (aux[ind] == "none")
+            alright = true;
+        else if (aux[ind].find("arma(") != std::string::npos)
+            alright = true;
+        ind++;
+    } while(alright == true && ind < aux.size());
+    if (alright == false){
+        printf("%s", "ERROR: irregularOptions wrongly set (none/arma(p,q))!!!\n");
+        return true;
+    }
+    // Checking TVP
+    if (any(TVP > 1)){
+        printf("%s", "ERROR: TVP vector should contain zeros and/or ones only!!!\n");
+        return true;
+    }
+    if (u.n_rows > 0){
+        if (TVP.n_elem == 0)
+            TVP.zeros(u.n_rows);
+        else if (TVP.n_elem < u.n_rows){
+            vec aux2(u.n_rows - TVP.n_elem, fill::zeros);
+            TVP = join_vert(TVP, aux2);
+        } else if (TVP.n_elem > u.n_rows){
+            TVP = TVP.rows(0, u.n_rows - 1);
+        }
+    } else {
+        TVP = {};
+    }
+    // Checking lambda
+    if (lambda != 9999.9 && abs(lambda) > 1)
+        lambda = sign(lambda);
+    // Checking forecasting horizon
+    int initPer;
+    initPer = max(periods);
+    h = abs(h);
+    if (h == 9999){
+        if (initPer == 1)
+            initPer = 5;
+        h = 2 * initPer;
+    }
+    if (outlier == -9999)
+        outlier = 0.0;
+    // Correcting h in case there are inputs
+    if (u.n_rows > 0){
+        h = u.n_cols - y.n_elem;
+        if (h < 0){
+            printf("%s", "ERROR: Inputs should be at least as long as the ouptut!!!\n");
+            return true;
+        }
+    }
+    // Checking periods
+    if (min(periods) < 1){
+        printf("%s", "ERROR: All periods should be higher or equal than zero!!!\n");
+        return true;
+    }
+    // Removing nans at beginning or end
+    /*
+     if (!y.row(0).is_finite() || !y.row(y.n_elem - 1).is_finite()){
+     uvec ind = find_finite(y);
+     int minInd = min(ind), maxInd = max(ind);
+     y = y.rows(minInd, maxInd);
+     if (u.n_rows > 0){
+     u = u.cols(minInd, maxInd);
+     }
+     }
+     */
+    // Checking periods
+    //    if (is.ts(y) && is.na(periods) && frequency(y) > 1){
+    //        periods = frequency(y) / (1 : floor(frequency(y) / 2))
+    //    } else if (is.ts(y) && is.na(periods)){
+    //        periods = 1
+    //    } else if (!is.ts(y) && is.na(periods)){
+    //        stop("Input \"periods\" should be supplied!!")
+    //    }
+    if (model.find("/") == string::npos){
+        printf("%s", "ERROR: Incorrect number of components (trend/seasonal/irregular)!!!\n");
+        return true;
+    }
+    vector<string> comps;
+    chopString(model, "/", comps);
+    // Number of components
+    if (comps.size() < 3 || comps.size() > 4){
+        printf("%s", "ERROR: Incorrect number of components (trend/seasonal/irregular)!!!\n");
+        return true;
+    }
+    // Adding cycle in case of T/S/I model specification
+    if (comps.size() == 3){
+        model = comps[0] + "/none/" + comps[1] + "/" + comps[2];
+        chopString(model, "/", comps);
+    }
+    // Setting seasonal to none for annual data
+    if (max(periods) == 1){
+        if (comps.size() == 3){
+            comps[1] = "none";
+            model = comps[0] + "/" + comps[1] + "/" + comps[2];
+        }
+        if (comps.size() == 4){
+            comps[2] = "none";
+            model = comps[0] + "/" + comps[1] + "/" + comps[2] + "/" + comps[3];
+        }
+    }
+    // Checking model
+    if (comps[1][0] != 'n' && comps[2][0] == 'l'){
+        printf("%s", "ERROR: Cycle can estimated only with trigonometric seasonal components!!!\n");
+        return true;
+    }
+    if (comps[0][0] == 'n' && comps[1][0] == 'n' && comps[2][0] == 'n' && comps[3][0] == 'n'){
+        printf("%s", "ERROR: No correct model specified!!!\n");
+        return true;
+    }
+    if (model.find("?") == string::npos && p0(0) != -9999.9){
+        p0.set_size(1);
+        p0(0) = -9999.9;
+    }
+    if (model.find("?") == string::npos && isnan(p0(0))){
+        p0.set_size(1);
+        p0(0) = datum::nan;
+    }
+    if (model.find("arma") != string::npos && model.find("(") == string::npos){
+        model = model + "(0,0)";
+        chopString(model, "/", comps);
+    }
+    if (model.find("arma") != string::npos && model[model.length() - 1] != ')'){
+        model = model + ")";
+        chopString(model, "/", comps);
+    }
+    // Checking components
+    string opt = "?nirlds";
+    if (opt.find(comps[0][0]) == string::npos){
+        printf("%s", "ERROR: Incorrect TREND model (? / none / irw / td / llt / dt / srw)!!!\n");
+        return true;
+    }
+    opt = "?n+-0123456789";
+    if (opt.find(comps[1][0]) == string::npos){
+        printf("%s", "ERROR: Incorrect CYCLE model (? / none / +-integer)!!!\n");
+        return true;
+    }
+    opt = "?nedl";
+    if (opt.find(comps[2][0]) == string::npos){
+        printf("%s", "ERROR: Incorrect SEASONAL model (? / none / equal / different / linear)!!!\n");
+        return true;
+    }
+    if (comps[3][0] == 'a' && model.find("arma") == string::npos){
+        printf("%s", "ERROR: Incorrect IRREGULAR model (? / none / arma(p, q))!!!\n");
+        return true;
+    }
+    opt = "?na";
+    if (opt.find(comps[3][0]) == string::npos){
+        printf("%s", "ERROR: Incorrect IRREGULAR model (? / none / arma(p, q))!!!\n");
+        return true;
+    }
+    // Set rhos
+    //vec rhos(periods.n_elem, fill::ones);
+    // Checking cycle
+    if (comps[1][0] == '?'){
+        initPer *= -4;
+        if (initPer == -4)
+            initPer = -8;
+        comps[1] = to_string(initPer) + '?';
+    } else if (comps[1][0] != '+' && comps[1][0] != '-' && comps[1][0] != 'n')
+        comps[1] = '+' + comps[1];
+    model = comps[0] + "/" + comps[1] + "/" + comps[2] + "/" + comps[3];
+    // Checking criterion
+    if (criterion != "aic" && criterion != "bic" && criterion != "aicc"){
+        criterion = "aic";
+    }
+    // Building structures
+    // SSinputs inputsSS;
+    // BSMmodel inputsBSM;
+    // inputsSS.y = y;
+    // inputsSS.u = u;   // Inputs data (mat)
+    // inputsBSM.model = model;
+    // inputsSS.h = h;
+    // inputsBSM.tTest = tTest;
+    // inputsBSM.criterion = criterion;
+    // inputsSS.outlier = outlier;
+    // vec aux(1); aux(0) = outlier;
+    // if (aux.has_nan()){
+    //     outlier = 0;
+    // }
+    return false;
+    // inputsBSM.periods = periods;
+    // inputsSS.verbose = verbose;
+    // inputsBSM.stepwise = stepwise;
+    // inputsSS.p0 = p0;
+    // inputsBSM.arma = arma;
+    //inputsBSM.errorExit = errorExit;
+    //inputsBSM.rhos = rhos;
+    
+    //vec VOID(1); VOID.fill(datum::nan);
+    // inputsSS.p = VOID;
+    // inputsSS.grad = VOID;
+    // inputsSS.criteria = VOID;
+    // inputsSS.d_t = 0;
+    // inputsSS.innVariance = VOID(0);
+    // inputsSS.objFunValue = VOID(0);
+    // inputsSS.cLlik = true;
+    // inputsSS.Iter = 0;
+    // inputsSS.nonStationaryTerms = VOID(0);
+    // inputsBSM.ns = VOID;
+    // inputsBSM.nPar = VOID;
+    // if (harmonics.has_nan()){
+    //     inputsBSM.harmonics.resize(1);
+    //     inputsBSM.harmonics(0) = 0;
+    // } else {
+    //     inputsBSM.harmonics = conv_to<uvec>::from(harmonics);
+    // }
+    // inputsBSM.constPar = VOID;
+    // inputsBSM.typePar = VOID;
+    // inputsBSM.typeOutliers = {-1, -1};
+    // inputsBSM.cycleLimits = VOID;
+    
+    //inputsBSM.seas = max(periods);
+    //inputsSS.p = {datum::nan};        // Estimated parameters (vec)
+    // inputsSS.v = {datum::nan};        // Estimated innovations (vec)
+    // inputsSS.yFit = {datum::nan};     // Fitted values (vec)
+    // inputsSS.yFor = {datum::nan};     // Point forecasts (vec)
+    // inputsSS.F = {datum::nan};        // Innovations variance (vec)
+    // inputsSS.FFor = {datum::nan};     // Variance of forecasts (vec)
+    // inputsBSM.comp = {datum::nan};    // Estimated components (mat)
+    // inputsBSM.compV = {datum::nan};   // Variance of estimated components (mat)
+    // inputsSS.a = {datum::nan};        // Estimated states (mat)
+    // inputsSS.P = {datum::nan};        // Estimated variance of states (mat)
+    // inputsSS.eta = {datum::nan};      // Estimated transition perturbations (mat)
+    // inputsBSM.eps = {datum::nan};     // Estimated observed perturbations (vec)
+    // inputsSS.criteria = {datum::nan}; // Likelihood and information criteria at optimum (vec)
+    // inputsBSM.cycleLimits = {datum::nan};
+    // inputsBSM.rhos = inputsBSM.periods; inputsBSM.rhos.fill(1);
+    
+    //BSMclass m(inputsSS, inputsBSM);
+    //return m;
+    //if (errorExit)
+    //    return m;
+    //   if (y.has_nan())
+    //        m.interpolate();
+    //return m;
+    
+    // Building UComp system
+    //BSMclass sysBSM(inputsSS, inputsBSM);
+}
+// // Interpolation
+// void BSMclass::interpolate(){
+//     BSMmodel sysCopy = inputs;
+//     SSinputs ssCopy = SSmodel::inputs;
+//     SSmodel::inputs.h = 0;
+//     SSmodel::inputs.verbose = false;
+//     SSmodel::inputs.h = 0;
+//     vec y = SSmodel::inputs.y;
+//     mat u = SSmodel::inputs.u;
+//     string seasTypes, model;
+//     vector<string>models;
+//     if (max(inputs.periods) == 1){
+//         seasTypes = "none";
+//         //model1 = "llt/none/none/arma(0,0)";
+//         //model2 = "rw/none/none/arma(0,0)";
+//     } else {
+//         seasTypes = "equal";
+//         //model1 = "llt/none/equal/arma(0,0)";
+//         //model2 = "llt/none/equal/arma(0,0)";
+//     }
+//     //inputs.model = model1;
+//     double minCrit;
+//     vec y1(inputs.missing.n_elem), y2(inputs.missing.n_elem), aux(SSmodel::inputs.y.n_elem);
+//     uvec col(1); col(0) = 1;
+//     int iMin = min(inputs.missing), iMax = max(inputs.missing),
+//         iniObs = 0, finalObs = SSmodel::inputs.y.n_elem;
+//     uvec indFinite, poly(3, fill::ones), aux3;
+//     vec fit;
+//     // Forward interpolation
+//     if (iMin > 4){
+//         //setModel(inputs.model, inputs.periods, inputs.rhos, false);
+//         ///////// no funciona identificación
+//         findUCmodels("llt/rw", "none", seasTypes, "arma(0,0)", models);
+//         estimUCs(models, inputs.harmonics, minCrit, false, 1e12, SSmodel::inputs.u.n_rows);
+//         model = inputs.model;
+//         SSmodel::smooth(false);
+//         y1 = SSmodel::inputs.yFit(inputs.missing);
+//     } else {
+//         // Missing from start
+//         indFinite = find_finite(y.rows(iMin, y.n_elem - 1));
+//         aux3 = conv(diff(indFinite), poly);
+//         iniObs = indFinite(min(find(aux3.rows(2, aux3.n_elem - 1) == 3))) + iMin;
+//         SSmodel::inputs.y = y.rows(iniObs, y.n_elem - 1);
+//         if (u.n_rows > 0)
+//             SSmodel::inputs.u = u.cols(iniObs, y.n_elem - 1);
+//         findUCmodels("llt/rw", "none", seasTypes, "arma(0,0)", models);
+//         estimUCs(models, inputs.harmonics, minCrit, false, 1e12, SSmodel::inputs.u.n_rows);
+//         model = inputs.model;
+//         SSmodel::smooth(false);
+//         fit = join_vert(zeros(iniObs), inputs.comp.col(1));
+//         y1 = fit(inputs.missing);
+//         SSmodel::inputs.y = y;
+//         SSmodel::inputs.u = u;
+//     }
+//     bool VERBOSE = SSmodel::inputs.verbose;
+//     if (y.n_elem - iMax - 1 > 5){
+//         // Backwards interpolation
+//         SSmodel::inputs.y = reverse(SSmodel::inputs.y);
+//         setModel(model, inputs.periods, inputs.rhos, false);
+//         SSmodel::inputs.verbose = false;
+//         SSmodel::estim();
+//         SSmodel::inputs.verbose = VERBOSE;
+//         SSmodel::smooth(false);
+//         aux = reverse(SSmodel::inputs.yFit);
+//         y2 = aux(inputs.missing);
+//     } else {
+//         // Missing at the right end
+//         indFinite = find_finite(y.rows(0, iMax));
+//         aux3 = conv(diff(indFinite), poly);
+//         finalObs = indFinite(max(find(aux3.rows(0, aux3.n_elem - 3) == 3)) + 1);
+//         SSmodel::inputs.y = reverse(y.rows(0, finalObs));
+//         if (u.n_rows > 0)
+//             SSmodel::inputs.u = reverse(u.cols(0, finalObs), 1);
+//         setModel(model, inputs.periods, inputs.rhos, false);
+//         SSmodel::inputs.verbose = false;
+//         SSmodel::estim();
+//         SSmodel::inputs.verbose = VERBOSE;
+//         SSmodel::smooth(false);
+//         fit = join_vert(reverse(SSmodel::inputs.yFit), zeros(finalObs));
+//         y2 = fit(inputs.missing);
+//         SSmodel::inputs.y = y;
+//         SSmodel::inputs.u = u;
+//     }
+//     y(inputs.missing) = (y1 + y2) / 2;
+//     if (iMin < 6){
+//         // Correcting first chunk
+//         uvec missInd = inputs.missing(find(inputs.missing < iniObs));
+//         y(missInd) = y2.rows(0, missInd.n_elem - 1);
+//     }
+//     if (y.n_elem - iMax < 6){
+//         // Correcting last chunk
+//         uvec missInd = inputs.missing(find(inputs.missing > finalObs));
+//         y(missInd) = y1.rows(y1.n_elem - missInd.n_elem, y1.n_elem - 1);
+//     }
+//     // Restoring initial values and interpolating
+//     SSmodel::inputs = ssCopy;
+//     inputs = sysCopy;
+//     SSmodel::inputs.y = y;
+//     setModel(inputs.model, inputs.periods, inputs.rhos, false);
+// }
+
+// Estim SSOE system
+//void BSMclass::estimSSOE(){
+//}
 // Set model (part of constructor)
-void BSMmodel::setModel(string model, vec periods, vec rhos, bool runFromConstructor){
+void BSMclass::setModel(string model, vec periods, vec rhos, bool runFromConstructor){
     string trend, cycle, seasonal, irregular;
-    vec ns(5), nPar(5), typePar, noVar, constPar;
+    vec ns(7), nPar(7), typePar, noVar, constPar;
     mat cycleLimits;
     splitModel(model, trend, cycle, seasonal, irregular);
     // Checking cycle model and correcting from string input
     if (cycle[0] != 'n' && cycle != "?"){
         modelCorrect(model, cycle, inputs.cycle0, periods, rhos);
     }
+    this->inputs.trend = trend;
+    this->inputs.cycle = cycle;
+    this->inputs.seasonal = seasonal;
+    this->inputs.irregular = irregular;
     if (cycle[0] != 'n' && inputs.cycleLimits.has_nan()){
         calculateLimits(SSmodel::inputs.y.n_elem, periods, rhos, cycleLimits, inputs.seas);
         this->inputs.cycleLimits = cycleLimits;
@@ -184,18 +829,48 @@ void BSMmodel::setModel(string model, vec periods, vec rhos, bool runFromConstru
         typePar = this->inputs.typePar;
         // inputs.beta0ARMA.reset();
         initParBsm();
+        // Convert to MSOE form
+        if (inputs.MSOE)
+            bsm2msoe();
     }
     // Making coherent h and size(u)
     if (SSmodel::inputs.u.n_elem > 0){
         SSmodel::inputs.h =  SSmodel::inputs.u.n_cols - SSmodel::inputs.y.n_elem;
     }
-    this->inputs.trend = trend;
-    this->inputs.cycle = cycle;
-    this->inputs.seasonal = seasonal;
-    this->inputs.irregular = irregular;
+}
+// Convert bsm system to msoe
+void BSMclass::bsm2msoe(){
+    bool seas = false;
+    if (inputs.seasonal[0] != 'n')
+        seas = true;
+    uword nsAdd = seas + 1, ns = SSmodel::inputs.system.T.n_rows;
+    // Change R
+    SSmodel::inputs.system.R = join_vert(SSmodel::inputs.system.R, zeros(nsAdd, SSmodel::inputs.system.R.n_cols));
+    // Change T and Z
+    mat aux(ns + nsAdd, ns + nsAdd, fill::zeros);
+    aux.submat(0, 0, ns - 1, ns - 1) = SSmodel::inputs.system.T;
+    SSmodel::inputs.system.T = aux;
+    SSmodel::inputs.system.T.row(ns) = SSmodel::inputs.system.T.row(0);
+    SSmodel::inputs.system.Z = join_horiz(SSmodel::inputs.system.Z, zeros(1, nsAdd));
+    SSmodel::inputs.system.Z(ns) = 1.0;
+    if (seas){
+        if (inputs.seasonal[0] == 'l'){
+            SSmodel::inputs.system.T.row(ns + 1) = SSmodel::inputs.system.T.row(inputs.ns(0));
+            SSmodel::inputs.system.Z.cols(0, inputs.ns(0) + inputs.ns(1) + inputs.ns(2) - 1).fill(0.0);
+            SSmodel::inputs.system.Z(ns + 1) = 1.0;
+        } else {
+            SSmodel::inputs.system.Z.cols(0, inputs.ns(0) - 1).fill(0.0);
+            SSmodel::inputs.system.T.submat(ns + 1, inputs.ns(0), ns + 1, ns - 1) = SSmodel::inputs.system.Z.cols(inputs.ns(0), ns - 1);
+        }
+    } else {
+        SSmodel::inputs.system.Z.cols(0, inputs.ns(0) - 1).fill(0.0);
+    }
+//    showSS(SSmodel::inputs.system);
+//    cout << "model: " << inputs.model << endl;
+//    cout << "here" << endl;
 }
 // Print inputs on screen
-// void BSMmodel::showInputs(){
+// void BSMclass::showInputs(){
 //   cout << "**************************" << endl;
 //   cout << "Start of BSM system:" << endl;
 //   cout << "Model: " << inputs.model << endl;
@@ -224,17 +899,57 @@ void BSMmodel::setModel(string model, vec periods, vec rhos, bool runFromConstru
 //   cout << "End of BSM system:" << endl;
 //   cout << "**************************" << endl;
 // }
+// Interpolation of initial NaN values
+void BSMclass::interpolate(int iniObs){
+    BSMmodel sysCopy = inputs;
+    SSinputs ssCopy = SSmodel::inputs;
+    SSmodel::inputs.h = 0;
+    uvec missing = find_nonfinite(SSmodel::inputs.y.rows(0, iniObs));
+    SSmodel::inputs.y = reverse(SSmodel::inputs.y);
+    if (SSmodel::inputs.u.n_rows > 0)
+        SSmodel::inputs.u = reverse(SSmodel::inputs.u, 1);
+    int lastObs = findFirst(SSmodel::inputs.y, sum(inputs.ns));
+    SSmodel::inputs.y = SSmodel::inputs.y.rows(lastObs, SSmodel::inputs.y.n_elem - 1);
+    if (SSmodel::inputs.u.n_rows > 0)
+        SSmodel::inputs.u = SSmodel::inputs.u.cols(lastObs, SSmodel::inputs.u.n_cols - 1);
+    estim(false);
+    SSmodel::smooth(false);
+    vec yFit = reverse(SSmodel::inputs.yFit);
+    inputs = sysCopy;
+    SSmodel::inputs = ssCopy;
+    SSmodel::inputs.y(missing) = yFit(missing);
+    // BSMmodel sysCopy = inputs;
+    // SSinputs ssCopy = SSmodel::inputs;
+    // SSmodel::inputs.h = 0;
+    // SSmodel::inputs.y = reverse(SSmodel::inputs.y);
+    // if (SSmodel::inputs.u.n_rows > 0)
+    //     SSmodel::inputs.u = reverse(SSmodel::inputs.u, 1);
+    // int lastObs = findFirst(SSmodel::inputs.y, sum(inputs.ns));
+    // SSmodel::inputs.y = SSmodel::inputs.y.rows(lastObs, SSmodel::inputs.y.n_elem - 1);
+    // estim(false);
+    // SSmodel::smooth(false);
+    // vec yFit = reverse(SSmodel::inputs.yFit);
+    // SSmodel::inputs.y = reverse(SSmodel::inputs.y);
+    // uvec missing = find_nonfinite(SSmodel::inputs.y.rows(0, iniObs));
+    // inputs = sysCopy;
+    // SSmodel::inputs = ssCopy;
+    // SSmodel::inputs.y(missing) = yFit(missing + lastObs);
+    
+}
 // Estimation: runs estim(p) or ident()
-void BSMmodel::estim(){
+void BSMclass::estim(bool VERBOSE){
+    bool verboseCopy = SSmodel::inputs.verbose;
+    SSmodel::inputs.verbose = VERBOSE;
     if (inputs.trend != "?" && inputs.cycle != "?" && inputs.seasonal != "?" && inputs.irregular != "?"){
         // Particular model
         if (SSmodel::inputs.outlier == 0){
             // Without outlier detection
-            estim(SSmodel::inputs.p0);
-            checkModel();
+            uvec harmonics = inputs.harmonics;
+            estim(SSmodel::inputs.p0, VERBOSE);
+            checkModel(harmonics);
         } else {
             // With outlier detection
-            estimOutlier(SSmodel::inputs.p0);
+            estimOutlier(SSmodel::inputs.p0, VERBOSE);
         }
     } else {
         // Some or all the components to identify
@@ -242,19 +957,19 @@ void BSMmodel::estim(){
         string cycle0 = inputs.cycle0;
         size_t found = cycle.find('?');
         if (found != string::npos && inputs.arma){  // cycle has ?
-            BSMinputs old = inputs;
+            BSMmodel old = inputs;
             SSinputs oldSS = SSmodel::inputs;
             // First estimation with cycle
             inputs.cycle = inputs.cycle0;
-            ident("head");
+            ident("head", VERBOSE);
             SSinputs bestSS = SSmodel::inputs;
-            BSMinputs bestBSM = inputs;
+            BSMmodel bestBSM = inputs;
             inputs = old;
             SSmodel::inputs = oldSS;
             // Second estimation without cycle
             inputs.cycle = "none";
             strReplace("?", "", inputs.cycle0);
-            ident("tail");
+            ident("tail", VERBOSE);
             // Now decide which is best
             int crit = 1;
             if (inputs.criterion == "bic"){
@@ -270,12 +985,13 @@ void BSMmodel::estim(){
             inputs.cycle0 = cycle0;
         } else {
             // Estimation as is
-            ident("both");
+            ident("both", VERBOSE);
         }
     }
+    SSmodel::inputs.verbose = verboseCopy;
 }
 // Check whether re-estimation is necessary
-void BSMmodel::checkModel(){
+void BSMclass::checkModel(uvec harmonics){
     // Repeat estimation of one model in case of anomalies
     string ok = SSmodel::inputs.estimOk;
     bool add = (inputs.model[0] == 'd');
@@ -291,17 +1007,17 @@ void BSMmodel::checkModel(){
             printed = true;
         }
         SSinputs old = SSmodel::inputs;
-        setModel(inputs.model, inputs.periods, inputs.rhos, false);
+        setModel(inputs.model, inputs.periods(harmonics), inputs.rhos(harmonics), false);
         bool VERBOSE = old.verbose;
         SSmodel::inputs.verbose = false;
         SSmodel::inputs.p0(1 + add) = -6.2325;
         // Estimation of particular model
         if (SSmodel::inputs.outlier == 0){
             // Without outlier detection
-            estim(SSmodel::inputs.p0);
+            estim(SSmodel::inputs.p0, VERBOSE);
         } else {
             // With outlier detection
-            estimOutlier(SSmodel::inputs.p0);
+            estimOutlier(SSmodel::inputs.p0, VERBOSE);
         }
         if (!old.criteria.has_nan() &&
             (old.criteria(1) < SSmodel::inputs.criteria(1))){
@@ -323,17 +1039,17 @@ void BSMmodel::checkModel(){
             printed = true;
         }
         SSinputs old = SSmodel::inputs;
-        setModel(inputs.model, inputs.periods, inputs.rhos, false);
+        setModel(inputs.model, inputs.periods(harmonics), inputs.rhos(harmonics), false);
         bool VERBOSE = old.verbose;
         SSmodel::inputs.verbose = false;
         SSmodel::inputs.p0(0 + add) = -6.2325;
         // Estimation of particular model
         if (SSmodel::inputs.outlier == 0){
             // Without outlier detection
-            estim(SSmodel::inputs.p0);
+            estim(SSmodel::inputs.p0, VERBOSE);
         } else {
             // With outlier detection
-            estimOutlier(SSmodel::inputs.p0);
+            estimOutlier(SSmodel::inputs.p0, VERBOSE);
         }
         if (!old.criteria.has_nan() &&
             (old.criteria(1) < SSmodel::inputs.criteria(1))){
@@ -341,8 +1057,11 @@ void BSMmodel::checkModel(){
             SSmodel::inputs.verbose = VERBOSE;
         }
     }
+    inputs.harmonics = harmonics;
 }
-void BSMmodel::estim(vec p){
+void BSMclass::estim(vec p, bool VERBOSE){
+    bool verboseCopy = SSmodel::inputs.verbose;
+    SSmodel::inputs.verbose = VERBOSE;
     double objFunValue;
     vec grad;
     mat iHess;
@@ -355,6 +1074,8 @@ void BSMmodel::estim(vec p){
     } else {
         SSmodel::inputs.llikFUN = llik;
     }
+    // This next line is a bit dangerous
+    SSmodel::inputs.userInputs = &inputs;
     flag = quasiNewtonBSM(SSmodel::inputs.llikFUN, gradLlik, p, &(SSmodel::inputs),
                           objFunValue, grad, iHess, SSmodel::inputs.verbose);
     uvec indNan = find_nonfinite(SSmodel::inputs.y);
@@ -423,9 +1144,46 @@ void BSMmodel::estim(vec p){
     inputs.rhos = inputs.rhos(aux);
     inputs.periods = inputs.periods(aux);
     SSmodel::inputs.v.reset();
+    inputs.harmonics = regspace<uvec>(0, inputs.periods.n_elem - 1);
+    SSmodel::inputs.verbose = verboseCopy;
 }
+/*
+// Forecast
+void BSMclass::forecast(){
+    SSmodel::forecast();
+    // Correcting for Box-Cox lambda
+    inputs.yFor = SSmodel::inputs.yFor;
+    inputs.yForV.reshape(SSmodel::inputs.FFor.n_rows, 2);
+    vec aux = sqrt(SSmodel::inputs.FFor);
+    inputs.yForV.col(1) = invBoxCox(inputs.yFor + aux, inputs.lambda);
+    inputs.yForV.col(0) = invBoxCox(inputs.yFor - aux, inputs.lambda);
+    inputs.yFor = invBoxCox(inputs.yFor, inputs.lambda);
+}
+// Filter
+void BSMclass::filter(){
+    SSmodel::filter();
+    // Correcting for Box-Cox lambda
+    inputs.yFit = SSmodel::inputs.yFit;
+    inputs.yFitV.reshape(SSmodel::inputs.yFit.n_rows, 2);
+    vec aux = sqrt(SSmodel::inputs.F);
+    inputs.yFitV.col(1) = invBoxCox(inputs.yFit + aux, inputs.lambda);
+    inputs.yFitV.col(0) = invBoxCox(inputs.yFit - aux, inputs.lambda);
+    inputs.yFit = invBoxCox(inputs.yFit, inputs.lambda);
+}
+// Smooth
+void BSMclass::smooth(bool outlier){
+    SSmodel::smooth(outlier);
+    // Correcting for Box-Cox lambda
+    inputs.yFit = SSmodel::inputs.yFit;
+    inputs.yFitV.reshape(SSmodel::inputs.yFit.n_rows, 2);
+    vec aux = sqrt(SSmodel::inputs.F);
+    inputs.yFitV.col(1) = invBoxCox(inputs.yFit + aux, inputs.lambda);
+    inputs.yFitV.col(0) = invBoxCox(inputs.yFit - aux, inputs.lambda);
+    inputs.yFit = invBoxCox(inputs.yFit, inputs.lambda);
+}
+*/
 // Estimation of a family of UC models
-void BSMmodel::estimUCs(vector <string> allUCModels, uvec harmonics, 
+void BSMclass::estimUCs(vector <string> allUCModels, uvec harmonics,
                         double& minCrit, bool VERBOSE, 
                         double oldMinCrit, int nuInit){
     // Estim a number of UC models and select the best according to minCrit
@@ -437,13 +1195,17 @@ void BSMmodel::estimUCs(vector <string> allUCModels, uvec harmonics,
     BIC, 
     AICc;
     SSinputs bestSS = SSmodel::inputs;
-    BSMinputs bestBSM = inputs;
+    BSMmodel bestBSM = inputs;
     if (isnan(oldMinCrit)){
         oldMinCrit = 1e12;
     }
     minCrit = oldMinCrit;
+    bool inputsArma = inputs.arma;
     for (unsigned int i = 0; i < allUCModels.size(); i++){
         SSmodel::inputs.p0 = -9999.9;
+        int wide = 30;
+        if (inputs.PTSnames)
+            wide = 8;
         bool arma = inputs.arma;
         setModel(allUCModels[i], inputs.periods(harmonics), inputs.rhos(harmonics), false);
         inputs.arma = arma;
@@ -456,7 +1218,7 @@ void BSMmodel::estimUCs(vector <string> allUCModels, uvec harmonics,
             }
         }
         // Model estimation
-        estim();
+        estim(SSmodel::inputs.verbose);
         AIC = SSmodel::inputs.criteria(1);
         BIC = SSmodel::inputs.criteria(2);
         AICc = SSmodel::inputs.criteria(3);
@@ -465,7 +1227,13 @@ void BSMmodel::estimUCs(vector <string> allUCModels, uvec harmonics,
             AIC = BIC = AICc = datum::nan;
         }
         if (VERBOSE){
-            printf(" %*s: %8.4f %8.4f %8.4f\n", 30, allUCModels[i].c_str(), AIC, BIC, AICc);
+            string MODEL = allUCModels[i];
+            if (inputs.PTSnames){
+                MODEL = UC2PTS(allUCModels[i]);
+                printf(" %*s: %13.4f %13.4f %13.4f\n", wide, MODEL.c_str(), AIC, BIC, AICc);
+            } else {
+                printf(" %*s: %8.4f %8.4f %8.4f\n", wide, MODEL.c_str(), AIC, BIC, AICc);
+            }
         }
         if (inputs.criterion == "aic"){
             curCrit = AIC;
@@ -482,12 +1250,18 @@ void BSMmodel::estimUCs(vector <string> allUCModels, uvec harmonics,
     }
     SSmodel::inputs = bestSS;
     inputs = bestBSM;
+    inputs.arma = inputsArma;
 }
 // Identification
-void BSMmodel::ident(string show){
+void BSMclass::ident(string show, bool VERBOSE){
+    bool verboseCopy = SSmodel::inputs.verbose;
+    SSmodel::inputs.verbose = VERBOSE;
     wall_clock timer;
     timer.tic();
-    double season, 
+    // Interpolation in case of missing
+    // if (inputs.missing.n_elem > 0)
+    //     interpolate();
+    double season,
     maxLag,
     outlierCopy = SSmodel::inputs.outlier;
     string inputTrend = inputs.trend, 
@@ -502,7 +1276,7 @@ void BSMmodel::ident(string show){
         restRW; 
     int trueTrend,
     nuInit = SSmodel::inputs.u.n_rows;
-    bool VERBOSE = SSmodel::inputs.verbose;
+    //bool VERBOSE = SSmodel::inputs.verbose;
     // Controling estimation with or without outliers
     if (outlierCopy > 0){
         SSmodel::inputs.outlier = 0;
@@ -534,7 +1308,7 @@ void BSMmodel::ident(string show){
                 inputTrend = "none";
                 trendTypes = "none";
             } else if (trueTrend == 1){
-                inputTrend = "some";
+                inputTrend = "SOME";
                 trendTypes = "rw";
             }
         }
@@ -550,7 +1324,7 @@ void BSMmodel::ident(string show){
     // Selecting harmonics
     uvec harmonics = regspace<uvec>(0, periods.n_elem - 1);
     uvec harmonics0 = harmonics;
-    if (inputSeasonal[0] != 'n'){
+    if (inputSeasonal[0] != 'n' && inputSeasonal[0] != 'l' && !inputs.MSOE){
         vec betaHR;
         selectHarmonics(SSmodel::inputs.y, SSmodel::inputs.u, periods, harmonics, betaHR, isSeasonal);
         if (harmonics.n_rows == 0){
@@ -571,10 +1345,16 @@ void BSMmodel::ident(string show){
         if (SSmodel::inputs.outlier < 0){
             printf(" Identification started WITH outlier detection\n");
         } else {
-            printf(" Identification started WITHOUT outlier detection\n");
+            if (inputs.PTSnames)
+                printf(" Identification of PTS models:\n");
+            else
+                printf(" Identification started WITHOUT outlier detection\n");
         }
         printf("------------------------------------------------------------\n");
-        printf("          Model                       AIC      BIC     AICc\n");
+        if (inputs.PTSnames)
+            printf("    Model            AIC           BIC          AICc\n");
+        else
+            printf("          Model                       AIC      BIC     AICc\n");
         printf("------------------------------------------------------------\n");
     }
     // Finding models to identify
@@ -606,10 +1386,10 @@ void BSMmodel::ident(string show){
     }
     if (inputTrend == "?"){
         trendTypes = "none/rw";
-    } else if (inputTrend[0] != 's'){
+    } else if (inputTrend[0] != 'S'){
         trendTypes = inputTrend;
         runAll = true;
-    } else if (inputTrend[0] == 's'){
+    } else if (inputTrend[0] == 'S'){
         runAll = false;
     }
     if (runAll){    // no stepwise
@@ -617,21 +1397,29 @@ void BSMmodel::ident(string show){
             if (inputIrregular != "none" && inputIrregular != "arma(0,0)"
                     && inputIrregular != "?"){
                 // Avoiding identification problems between arma(p,q) and dt trend
-                trendTypes = "none/rw/llt";
+                trendTypes = inputs.trendOptions;
+                strReplace("/dt", "", trendTypes);
+                strReplace("dt/", "", trendTypes);
+                strReplace("/srw", "", trendTypes);
+                strReplace("srw/", "", trendTypes);
             } else {
-                trendTypes = "none/rw/llt/dt";
+                trendTypes = inputs.trendOptions;
             }
         }
         if (inputSeasonal == "?")
-            seasTypes = "none/equal/different";
+            seasTypes = inputs.seasonalOptions;
         else
             seasTypes = inputSeasonal;
+        if (inputIrregular == "?")
+            irrTypes = inputs.irregularOptions;
+        else
+            irrTypes = inputIrregular;
         findUCmodels(trendTypes, cycTypes, seasTypes, irrTypes, allUCModels);
         estimUCs(allUCModels, harmonics, minCrit, VERBOSE, 1e12, nuInit);
     } else {                  // stepwise
         if (inputSeasonal[0] == 'n'){
             // Annual or non seasonal data
-            if (inputTrend == "?" || inputTrend == "some")
+            if (inputTrend == "?" || inputTrend == "SOME")
                 trendTypes = trendTypes + "/llt/dt";
             seasTypes = "none";
             findUCmodels(trendTypes, cycTypes, seasTypes, irrTypes, allUCModels);
@@ -704,7 +1492,7 @@ void BSMmodel::ident(string show){
                     uvec ind = find_finite(SSmodel::inputs.v);
                     // if ((float)SSmodel::inputs.v.n_elem - (float)SSmodel::inputs.system.T.n_rows - 2 > 3 * (float)season){
                     if ((float)ind.n_elem - (float)SSmodel::inputs.system.T.n_rows - 2 > 3 * (float)season){
-                        selectARMA(SSmodel::inputs.v.rows(SSmodel::inputs.system.T.n_rows + 2, SSmodel::inputs.v.n_elem - 1), 
+                        selectARMA(SSmodel::inputs.v.rows(SSmodel::inputs.system.T.n_rows + 2, SSmodel::inputs.v.n_elem - 1),
                                    maxLag, maxSearch, "bic", orders, beta0);
                         inputs.beta0ARMA = beta0;
                     }
@@ -780,6 +1568,11 @@ void BSMmodel::ident(string show){
         printf("  Identification time: %10.5f seconds\n", nSeconds);
         printf("------------------------------------------------------------\n");
     }
+    // Final estimation (genunine with nans in case of missing data)
+    //if (inputs.missing.n_elem > 0){
+    //     SSmodel::inputs.y(inputs.missing).fill(datum::nan);
+    //     estim();
+    //}
     SSmodel::inputs.verbose = VERBOSE;
     // Updating inputs
     if (inputSeasonal[0] == 'n'){
@@ -789,22 +1582,25 @@ void BSMmodel::ident(string show){
     }
     inputs.harmonics = harmonics;
     inputs.rhos = inputs.rhos(harmonics);
-    SSmodel::inputs.outlier = outlierCopy;
+    SSmodel::inputs.outlier = -abs(outlierCopy);
     if (harmonics.n_elem > 0){
         inputs.periods = inputs.periods(harmonics);
     } else {
         inputs.periods.resize(1);
         inputs.periods.fill(1);
     }
+    SSmodel::inputs.verbose = verboseCopy;
 }
 // Outlier detection a la Harvey and Koopman
-void BSMmodel::estimOutlier(vec p0){
+void BSMclass::estimOutlier(vec p0, bool VERBOSE){
+    bool verboseCopy = SSmodel::inputs.verbose;
+    SSmodel::inputs.verbose = VERBOSE;
     // Havey, A.C. and Koopman, S.J. (1992), Diagnostic checking of unobserved
     //        components time series models , JBES, 10, 377-389.
     int n = SSmodel::inputs.y.n_elem - 1, //nNan,
         nu = SSmodel::inputs.u.n_rows,
         lu = 0;
-    bool VERBOSE = SSmodel::inputs.verbose;
+    //bool VERBOSE = SSmodel::inputs.verbose;
     SSmodel::inputs.verbose = false;
     vec periodsCopy = inputs.periods,
         rhosCopy = inputs.rhos;
@@ -818,12 +1614,12 @@ void BSMmodel::estimOutlier(vec p0){
     timer.tic();
     // Initial estimation without checking oultiers
     SSmodel::inputs.p0 = p0;
-    estim(SSmodel::inputs.p0);
+    estim(SSmodel::inputs.p0, VERBOSE);
     inputs.periods = periodsCopy;
     inputs.rhos = rhosCopy;
     // Storing initial model clean
     SSinputs bestSS = SSmodel::inputs;
-    BSMinputs bestBSM = inputs;
+    BSMmodel bestBSM = inputs;
     // Forward Addition loop
     // Disturbances estimation
     disturb();
@@ -935,7 +1731,7 @@ void BSMmodel::estimOutlier(vec p0){
         if (VERBOSE){
             SSmodel::inputs.verbose = true;
         }
-        estim(SSmodel::inputs.p0);
+        estim(SSmodel::inputs.p0, VERBOSE);
         inputs.periods = periodsCopy;
         inputs.rhos = rhosCopy;
         vec obj(1); obj(0) = SSmodel::inputs.objFunValue;
@@ -949,7 +1745,7 @@ void BSMmodel::estimOutlier(vec p0){
             int count = 0;
             do{
                 nuAll = nu + ind.n_elem;
-                vec t = abs(SSmodel::inputs.betaAug.rows(ns + nu, ns + nuAll - 1) / 
+                vec t = abs(SSmodel::inputs.betaAug.rows(ns + nu, ns + nuAll - 1) /
                     sqrt(SSmodel::inputs.betaAugVar.rows(ns + nu, ns + nuAll - 1)));
                 remove = find(t < abs(SSmodel::inputs.outlier));
                 if (remove.n_elem > 0){
@@ -966,7 +1762,7 @@ void BSMmodel::estimOutlier(vec p0){
                         inputs = bestBSM;
                     } else {
                         // Final estimation
-                        estim(SSmodel::inputs.p0);
+                        estim(SSmodel::inputs.p0, VERBOSE);
                         inputs.periods = periodsCopy;
                         inputs.rhos = rhosCopy;
                     }
@@ -1003,59 +1799,156 @@ void BSMmodel::estimOutlier(vec p0){
     uvec aux = find(inputs.rhos > 0);
     inputs.rhos = inputs.rhos(aux);
     inputs.periods = inputs.periods(aux);
+    SSmodel::inputs.verbose = verboseCopy;
 }
 // Components
-void BSMmodel::components(){
+void BSMclass::components(){
     SSmodel::smooth(true);
     int nCycles = sum(inputs.rhos < 0), k = SSmodel::inputs.u.n_rows;
     inputs.comp.set_size(4 + nCycles + k, SSmodel::inputs.yFit.n_rows);
     inputs.comp.fill(datum::nan);
     inputs.compV = inputs.comp;
+    uword ny = SSmodel::inputs.y.n_elem - 1;
     vec nsCum = cumsum(inputs.ns);
+    uvec remove(inputs.comp.n_rows, fill::zeros);
+    inputs.compNames = "";
+    uword ns = sum(inputs.ns), ind = 0;
     // Level
     if (inputs.ns(0) > 0 && SSmodel::inputs.system.T(0, 0) != 0){
-        inputs.comp.row(0) = SSmodel::inputs.a.row(0);
-        inputs.compV.row(0) = SSmodel::inputs.P.row(0);
-    }
+        if (SSmodel::inputs.a.n_rows > ns)
+            ind = ns;
+        inputs.comp.row(0) = SSmodel::inputs.a.row(ind);
+        inputs.compV.row(0) = SSmodel::inputs.P.row(ind);
+        //if (sum(abs(inputs.comp.row(0).cols(0, ny))) > 1e-7)
+        inputs.compNames += "Level/";
+    } else
+        remove(0) = 1;
     // Slope
     if (inputs.ns(0) > 1){
         inputs.comp.row(1) = SSmodel::inputs.a.row(1);
         inputs.compV.row(1) = SSmodel::inputs.P.row(1);
-    }
+        //if (sum(abs(inputs.comp.row(1).cols(0, ny))) > 1e-7)
+        inputs.compNames += "Slope/";
+        //else
+        //    remove(1) = 1;
+    } else
+        remove(1) = 1;
     // Seasonal
     if (inputs.ns(2) > 0){
-        urowvec ind = regspace<urowvec>(nsCum(1), 2, nsCum(2) - 1);
-        inputs.comp.row(2) = sum(SSmodel::inputs.a.rows(ind));
-        inputs.compV.row(2) = sum(SSmodel::inputs.P.rows(ind));
-    }
+        if (inputs.seasonal[0] != 'l'){
+            urowvec ind = regspace<urowvec>(nsCum(1), 2, nsCum(2) - 1);
+            inputs.comp.row(2) = sum(SSmodel::inputs.a.rows(ind));
+            inputs.compV.row(2) = sum(SSmodel::inputs.P.rows(ind));
+        } else {
+            ind = nsCum(1);
+            if (SSmodel::inputs.a.n_rows > ns)
+                ind = SSmodel::inputs.a.n_rows - 1;
+            inputs.comp.row(2) = SSmodel::inputs.a.row(ind);
+            inputs.compV.row(2) = SSmodel::inputs.P.row(ind);
+        }
+        inputs.compNames += "Seasonal/";
+    } else
+        remove(2) = 1;
     // Irregular
-    uword ny = SSmodel::inputs.y.n_elem - 1;
     if (inputs.ns(3) == 0){     // White noise
         inputs.comp.row(3).cols(0, ny) = SSmodel::inputs.y.t() - SSmodel::inputs.yFit.rows(0, ny).t();
-        inputs.compV.row(3).cols(0, ny) = SSmodel::inputs.F.rows(0, ny).t();
+        //vec F = SSmodel::inputs.y;
+        // uvec ind = find_finite(SSmodel::inputs.y);
+        // inputs.compV()
+        // inputs.compV.row(3).cols(0, ny) = SSmodel::inputs.F.rows(0, ny).t();
+        // 
+        // 
+        // 
+        // inputs.compV.row(3).cols(0, ny) = SSmodel::inputs.F.rows(0, ny).t();
+        rowvec v = inputs.comp.row(3).cols(0, ny);
+        uvec aux = find_finite(v);
+        //inputs.comp.submat(3, 0, 3, SSmodel::inputs.y.n_elem - 1).replace(datum::nan, 0);
+        if (sum(abs(v(aux))) > 1e-7)
+            inputs.compNames += "Irregular/";
+        else
+            remove(3) = 1;
     } else {                    // ARMA
         inputs.comp.row(3) = SSmodel::inputs.a.row(nsCum(2));
-        inputs.compV.row(3) = SSmodel::inputs.P.row(nsCum(2));
+        // inputs.compV.row(3) = SSmodel::inputs.P.row(nsCum(2));
+        rowvec v = inputs.comp.row(3).cols(0, ny);
+        uvec aux = find_finite(v);
+        //inputs.comp.submat(3, 0, 3, SSmodel::inputs.y.n_elem - 1).replace(datum::nan, 0);
+        if (sum(abs(aux)) > 1e-7){
+            inputs.compNames += "ARMA(" + to_string(inputs.ar) +
+                "," + to_string(inputs.ma) + ")/";
+        } else
+            remove(3) = 1;
     }
+    // NaNs in irregular
+    //if (inputs.missing.n_elem > 0){
+    //    vec aux = inputs.comp.row(3);
+    //    aux(inputs.missing).fill(datum::nan);
+    //    inputs.comp.row(3) = aux;
+    //}
     // Cycle
     if (inputs.ns(1) > 0){
         for (int i = 0; i < nCycles; i++){
             inputs.comp.row(4 + i) = SSmodel::inputs.a.row(nsCum(0) + 2 * i);
             inputs.compV.row(4 + i) = SSmodel::inputs.P.row(nsCum(0) + 2 * i);
+            //if (sum(abs(inputs.comp.row(4 + i).cols(0, ny))) > 1e-7)
+            inputs.compNames += "Cycle" + to_string(i + 1) + "/";
+            //else
+            //    remove(4 + i) = 1;
         }
     }
     // Inputs
     if (k > 0){
-        for (int i = 0; i < k; i++){
-            inputs.comp.row(4 + nCycles + i) = SSmodel::inputs.system.D(i) * 
-                SSmodel::inputs.u.submat(i, 0, i, SSmodel::inputs.u.n_cols - 1);
+        if (SSmodel::inputs.system.Z.n_rows == 1){
+            for (int i = 0; i < k; i++){
+                inputs.comp.row(4 + nCycles + i) = SSmodel::inputs.system.D(i) *
+                    SSmodel::inputs.u.submat(i, 0, i, SSmodel::inputs.u.n_cols - 1);
+            }
+        } else {
+            for (int i = 0; i < k; i++){
+                inputs.comp.row(4 + nCycles + i) =
+                        SSmodel::inputs.a.row(nsCum(5) + i) % SSmodel::inputs.u.row(i);
+            }
+        }
+        // Components names
+        int nOut = 0;
+        if (inputs.typeOutliers.n_rows > 0 && inputs.typeOutliers(0, 1) != -1)
+            nOut = inputs.typeOutliers.n_rows;
+        int nU = k - nOut;
+        if (nU > 0){
+            for (int i = 0; i < nU; i++)
+                inputs.compNames += "Reg(" + to_string(i + 1) + ")/";
+        }
+        if(nOut > 0){
+            string namei;
+            for (int i = 0; i < nOut; i++){
+                namei = "AO";
+                if (inputs.typeOutliers(i, 0) == 1){
+                    namei = "LS";
+                } else if(inputs.typeOutliers(i, 0) == 2){
+                    namei = "SC";
+                }
+                inputs.compNames += namei + to_string((uword)(inputs.typeOutliers(i, 1) + 1)) + "/";
+            }
         }
     }
-    inputs.comp.submat(0, 0, inputs.comp.n_rows - 1, SSmodel::inputs.y.n_elem - 1).replace(datum::nan, 0);
-    inputs.comp.submat(0, 0, inputs.comp.n_rows - 1, SSmodel::inputs.y.n_elem - 1).replace(datum::inf, 0);
+    //inputs.comp.submat(0, 0, inputs.comp.n_rows - 1, SSmodel::inputs.y.n_elem - 1).replace(datum::nan, 0);
+    //inputs.comp.submat(0, 0, inputs.comp.n_rows - 1, SSmodel::inputs.y.n_elem - 1).replace(datum::inf, 0);
+    if (sum(remove) > 0){
+        inputs.comp.shed_rows(find(remove == 1));
+        inputs.compV.shed_rows(find(remove == 1));
+    }
+    /*
+    // Correcting for lambda
+    mat aux = sqrt(compV);
+    aux = inputs.comp + aux;
+    inputs.compPlus = invBoxCoxMat(inputs.comp + aux, inputs.lambda);
+    inputs.compMinus = invBoxCoxMat(inputs.comp - aux, inputs.lambda);
+    inputs.comp = invBoxCoxMat(inputs.comp, inputs.lambda);
+    inputs.compNames = inputs.compNames.substr(0, inputs.compNames.length() - 1);
+    */
 }
 // Covariance of parameters (inverse of hessian)
-mat BSMmodel::parCov(vec& returnP){
+mat BSMclass::parCov(vec& returnP){
     vec reserveP = SSmodel::inputs.p;
     // Finding true parameter values
     SSmodel::inputs.p = parameterValues(SSmodel::inputs.p);
@@ -1089,7 +1982,7 @@ mat BSMmodel::parCov(vec& returnP){
     return iHess;
 }
 // Finding true parameter values out of transformed parameters
-vec BSMmodel::parameterValues(vec p){
+vec BSMclass::parameterValues(vec p){
     vec nparCum = cumsum(inputs.nPar);
     int nCycles = sum(inputs.rhos < 0);
     // Transforming all variances
@@ -1128,7 +2021,7 @@ vec BSMmodel::parameterValues(vec p){
         // Variances
         // parValues(span(pos, nparCum(1) - 1)) = exp(2 * pCycle(span(nCycles + nn, 2 * nCycles + nn - 1)));
     }
-    // Seasonal
+    // ARMA
     if (inputs.ar >0 || inputs.ma > 0) {  // ARMA model
         uvec ind;
         vec polyAux;
@@ -1162,14 +2055,15 @@ vec BSMmodel::parameterValues(vec p){
     return parValues;
 }
 // Parameter names
-void BSMmodel::parLabels(){
+void BSMclass::parLabels(){
+    inputs.parNames.clear();
     // Trend
-    if (inputs.trend[0] == 'd'){
+    if (inputs.trend[0] == 'd' || inputs.trend[0] == 's'){
         inputs.parNames.push_back("Damping");
     }
     if (inputs.trend[0] != 'n' && inputs.trend[0] != 'i')
         inputs.parNames.push_back("Level");
-    if (inputs.trend[0] != 'n' && inputs.trend[0] != 'r'){
+    if (inputs.trend[0] != 'n' && inputs.trend[0] != 'r' && inputs.trend[0] != 't'){
         inputs.parNames.push_back("Slope");
     }
     vec nsCum = cumsum(inputs.ns);
@@ -1179,34 +2073,36 @@ void BSMmodel::parLabels(){
     uvec aux;
     vec pCycle, typeParC;
     //if (inputs.cycle[0] != 'n'){
-    if (nCycles > 0){
+    if (nCycles > 0 && SSmodel::inputs.p.n_elem > 0){
         aux = regspace<uvec>(nparCum(0), nparCum(1) - 1);
         pCycle = SSmodel::inputs.p(aux);
         typeParC = inputs.typePar(aux);
         int count;
         char name[20];
         for (count = 0; count < nCycles; count++){
-            sprintf(name, "Rho(%1.0i)", count + 1);
+            snprintf(name, 20, "Rho(%d)", count + 1);
             inputs.parNames.push_back(name);
         }
         for (count = 0; count < nCycles; count++){
             if (inputs.periods(count) < 0){
-                sprintf(name, "Period(%1.0i)", count + 1);
+                snprintf(name, 20, "Period(%d)", count + 1);
                 inputs.parNames.push_back(name);
             }
         }
         for (count = 0; count < nCycles; count++){
-            sprintf(name, "Var(%1.0i)", count + 1);
+            snprintf(name, 20, "Var(%d)", count + 1);
             inputs.parNames.push_back(name);
         }
     }
     // Seasonal
+    if (inputs.seasonal[0] == 'l')
+        inputs.parNames.push_back("Seas");
     if (inputs.seasonal[0] == 'e')
         inputs.parNames.push_back("Seas(All)");
     if (inputs.seasonal[0] == 'd'){
         char seasNames[20];
         for (unsigned int i = sum(inputs.rhos < 0); i < inputs.periods.n_elem; i++){
-            sprintf(seasNames, "Seas(%1.1f)", inputs.periods(i));
+            snprintf(seasNames, 20, "Seas(%1.1f)", inputs.periods(i));
             inputs.parNames.push_back(seasNames);
         }
     }
@@ -1216,21 +2112,32 @@ void BSMmodel::parLabels(){
     if (inputs.irregular != "arma(0,0)" && inputs.irregular[0] != 'n'){
         char arNames[20];
         for (int i = 0; i < inputs.ar; i++){
-            sprintf(arNames, "AR(%1.0i)", i + 1);
+            snprintf(arNames, 20, "AR(%d)", i + 1);
             inputs.parNames.push_back(arNames);
         }
         for (int i = 0; i < inputs.ma; i++){
-            sprintf(arNames, "MA(%1.0i)", i + 1);
+            snprintf(arNames, 20, "MA(%d)", i + 1);
             inputs.parNames.push_back(arNames);
         }
     }
     // Inputs
     int nOut = inputs.typeOutliers.n_rows;
     int nu = SSmodel::inputs.u.n_rows;
-    if (nu - nOut > 0){
+    if (sum(inputs.TVP) > 0){
+        char betas[20];
+        uvec ind = find(inputs.TVP);
+        for (int i = 0; i < sum(inputs.TVP); i++){
+            snprintf(betas, 20, "TVP(%d)", (int)ind(i) + 1);
+            inputs.parNames.push_back(betas);
+        }
+        for (int i = 0; i < nu - nOut; i++){
+            snprintf(betas, 20, "State(%d)", i + 1);
+            inputs.parNames.push_back(betas);
+        }
+    } else if (nu - nOut > 0){
         char betas[20];
         for (int i = 0; i < nu - nOut; i++){
-            sprintf(betas, "Beta(%1.0i)", i + 1);
+            snprintf(betas, 20, "Beta(%d)", i + 1);
             inputs.parNames.push_back(betas);
         }
     }
@@ -1239,13 +2146,13 @@ void BSMmodel::parLabels(){
         char betas[20], typeO[5];
         for (int i = 0; i < nOut; i++){
             if (inputs.typeOutliers(i, 0) == 0){
-                sprintf(typeO, "AO");
+                snprintf(typeO, 5, "AO");
             } else if (inputs.typeOutliers(i, 0) == 1){
-                sprintf(typeO, "LS");
+                snprintf(typeO, 5, "LS");
             } else if (inputs.typeOutliers(i, 0) == 2){
-                sprintf(typeO, "SC");
+                snprintf(typeO, 5, "SC");
             }
-            sprintf(betas, "%s%0.0f", typeO, inputs.typeOutliers(i, 1) + 1);
+            snprintf(betas, 20, "%s%0.0f", typeO, inputs.typeOutliers(i, 1) + 1);
             inputs.parNames.push_back(betas);
         }
     }
@@ -1254,9 +2161,9 @@ void BSMmodel::parLabels(){
     }
 }
 // Validation of BSM models
-void BSMmodel::validate(){
+void BSMclass::validate(bool showTable){
     // SSpace validate
-    SSmodel::validate(false);
+    SSmodel::validate(false, sum(inputs.nPar));
     vec scores;
     mat iHess = parCov(scores);
     SSmodel::inputs.covp = iHess;
@@ -1266,13 +2173,20 @@ void BSMmodel::validate(){
     int nu = SSmodel::inputs.u.n_rows;
     vec p, stdP, stdPBSM;
     stdPBSM = sqrt(abs(iHess.diag()));
-    if (nu > 0){
-        int ind1 = SSmodel::inputs.betaAug.n_elem - nu;
-        p = join_vert(scores, SSmodel::inputs.betaAug.rows(ind1, ind1 + nu - 1));
-        stdP = join_vert(stdPBSM, sqrt(SSmodel::inputs.betaAugVar.rows(ind1, ind1 + nu - 1)));
-    } else {
+    if (nu == 0 ){
         p = scores;
         stdP = stdPBSM;
+    } else {
+        if (SSmodel::inputs.system.Z.n_rows == 1){
+            uword ind1 = SSmodel::inputs.betaAug.n_elem - nu;
+            p = join_vert(scores, SSmodel::inputs.betaAug.rows(ind1, ind1 + nu - 1));
+            stdP = join_vert(stdPBSM, sqrt(SSmodel::inputs.betaAugVar.rows(ind1, ind1 + nu - 1)));
+        } else {
+            uword ind1 = SSmodel::inputs.aEnd.n_rows - nu;
+            p = join_vert(scores, SSmodel::inputs.aEnd.rows(ind1, SSmodel::inputs.aEnd.n_rows - 1));
+            vec dPEnd = SSmodel::inputs.PEnd.diag();
+            stdP = join_vert(stdPBSM, sqrt(dPEnd.rows(ind1, SSmodel::inputs.aEnd.n_rows - 1)));
+        }
     }
     vec parValues = p;
     // Calculating t stats and pValues
@@ -1286,23 +2200,33 @@ void BSMmodel::validate(){
     } else {
         fullModel = inputs.model + " + inputs";
     }
-    sprintf(str, " Model: %s\n", fullModel.c_str());
+    if (SSmodel::inputs.system.Z.n_rows > 1){
+        fullModel += " + TVP";
+    }
+    string MODEL = fullModel;
+    if (inputs.PTSnames)
+        MODEL = UC2PTS(fullModel);
+    snprintf(str, 70, " Model: %s\n", MODEL.c_str());
     auto it = SSmodel::inputs.table.insert(SSmodel::inputs.table.begin() + 1, str);
-    if (SSmodel::inputs.cLlik)
-        SSmodel::inputs.table.insert(it, " Concentrated Maximum-Likelihood\n");
-    else
-        SSmodel::inputs.table.insert(it, " Maximum-Likelihood\n");
+    snprintf(str, 70, " Box-Cox lambda: %3.2f\n", inputs.lambda);
+    SSmodel::inputs.table.insert(it, str);
+    //if (SSmodel::inputs.cLlik)
+    //    SSmodel::inputs.table.insert(it, " Concentrated Maximum-Likelihood\n");
+    //else
+    //    SSmodel::inputs.table.insert(it, " Maximum-Likelihood\n");
     vec col1;
     int insert = 0;
     // Periods
     vec periods1 = inputs.periods(find(inputs.rhos > 0));
+    if (inputs.seasonal[0] == 'l')
+        periods1.reset();
     int lPer = periods1.n_elem;
     if (lPer > 0 && periods1(0) > 1 && inputs.nPar(2) > 0){
         string line;
-        sprintf(str, " Periods: %5.1f", periods1(0));
+        snprintf(str, 70, " Periods: %5.1f", periods1(0));
         line = str;
         for (int i = 1; i < lPer; i++){
-            sprintf(str, " /%5.1f", periods1(i));
+            snprintf(str, 70, " /%5.1f", periods1(i));
             line += str;
         }
         SSmodel::inputs.table.insert(SSmodel::inputs.table.begin() + 3, line + "\n");
@@ -1312,12 +2236,12 @@ void BSMmodel::validate(){
         insert++;
     }
     if (any(inputs.constPar == 1)){
-        sprintf(str, " (*)  concentrated out parameters\n");
+        snprintf(str, 70, " (*)  concentrated out parameters\n");
         SSmodel::inputs.table.insert(SSmodel::inputs.table.begin() + 4 + insert, str);
         insert++;
     }
     if (any(inputs.constPar > 1)){
-        sprintf(str, " (**) constrained parameters during estimation\n");
+        snprintf(str, 70, " (**) constrained parameters during estimation\n");
         SSmodel::inputs.table.insert(SSmodel::inputs.table.begin() + 4 + insert, str);
         insert++;
     }
@@ -1339,14 +2263,17 @@ void BSMmodel::validate(){
     pValue(ind).fill(datum::nan);
     SSmodel::inputs.grad(ind).fill(datum::nan);
     vec gradBetas(nu);
-    gradBetas.fill(0);
+    gradBetas.fill(datum::nan);
     vec grad = join_vert(SSmodel::inputs.grad, gradBetas);
     // stars for constrained parameters
     vector<string> col2;
     string chari;
     vec constPar;
     if (nu > 0){
-        constPar = join_vert(inputs.constPar, ones(nu, 1));
+        if (SSmodel::inputs.system.Z.n_rows == 1)
+            constPar = join_vert(inputs.constPar, ones(nu, 1));
+        else
+            constPar = join_vert(inputs.constPar, zeros(nu, 1));
     } else {
         constPar = inputs.constPar;
     }
@@ -1363,25 +2290,28 @@ void BSMmodel::validate(){
     for (int i = 0; i < nu; i++){
         col2.push_back("  ");
     }
-    for (unsigned i = 0; i < p.n_elem; i++){
+    // for (unsigned i = 0; i < p.n_elem; i++){
+    //     snprintf(str, 70, "%s:  \n", inputs.parNames.at(i).c_str());
+    // }
+    for (unsigned i = 0; i < sum(inputs.nPar) + SSmodel::inputs.u.n_rows; i++){
         if (abs(col1(i)) > 1e-3 || abs(col1(i)) == 0 || abs(col1(i)) == 1){
             if (isnan(pValue(i))){
-                sprintf(str, "%*s: %12.4f%2s \n", 12, inputs.parNames.at(i).c_str(), col1(i), col2.at(i).c_str());
+                snprintf(str, 70, "%*s: %12.4f%2s \n", 12, inputs.parNames.at(i).c_str(), col1(i), col2.at(i).c_str());
             } else {
-                if (constPar(i) > 0){
-                    sprintf(str, "%*s: %12.4f%2s %10.4f %10.4f \n", 12, inputs.parNames.at(i).c_str(), col1(i), col2.at(i).c_str(), t(i), pValue(i));
+                if (constPar(i) > 0 || isnan(grad(i))){
+                    snprintf(str, 70, "%*s: %12.4f%2s %10.4f %10.4f \n", 12, inputs.parNames.at(i).c_str(), col1(i), col2.at(i).c_str(), t(i), pValue(i));
                 } else {
-                    sprintf(str, "%*s: %12.4f%2s %10.4f %10.4f %10.2e\n", 12, inputs.parNames.at(i).c_str(), col1(i), col2.at(i).c_str(), t(i), pValue(i), abs(grad(i)));
+                    snprintf(str, 70, "%*s: %12.4f%2s %10.4f %10.4f %10.2e\n", 12, inputs.parNames.at(i).c_str(), col1(i), col2.at(i).c_str(), t(i), pValue(i), abs(grad(i)));
                 }
             }
         } else {
             if (isnan(pValue(i))){
-                sprintf(str, "%*s: %12.2e%2s \n", 12, inputs.parNames.at(i).c_str(), col1(i), col2.at(i).c_str());
+                snprintf(str, 70, "%*s: %12.2e%2s \n", 12, inputs.parNames.at(i).c_str(), col1(i), col2.at(i).c_str());
             } else {
-                if (constPar(i) > 0){
-                    sprintf(str, "%*s: %12.2e%2s %10.2e %10.4f \n", 12, inputs.parNames.at(i).c_str(), col1(i), col2.at(i).c_str(), t(i), pValue(i));
+                if (constPar(i) > 0 || isnan(grad(i))){
+                    snprintf(str, 70, "%*s: %12.2e%2s %10.2e %10.4f \n", 12, inputs.parNames.at(i).c_str(), col1(i), col2.at(i).c_str(), t(i), pValue(i));
                 } else {
-                    sprintf(str, "%*s: %12.2e%2s %10.2e %10.4f %10.2e\n", 12, inputs.parNames.at(i).c_str(), col1(i), col2.at(i).c_str(), t(i), pValue(i), abs(grad(i)));
+                    snprintf(str, 70, "%*s: %12.2e%2s %10.2e %10.4f %10.2e\n", 12, inputs.parNames.at(i).c_str(), col1(i), col2.at(i).c_str(), t(i), pValue(i), abs(grad(i)));
                 }
             }
         }
@@ -1389,15 +2319,19 @@ void BSMmodel::validate(){
     }
     // mat coef = join_horiz(join_horiz(col1, t), pValue);
     SSmodel::inputs.coef = col1;
-    //for (auto i = SSmodel::inputs.table.begin(); i != SSmodel::inputs.table.end(); i++){
-    //    cout << *i << " ";
-    //}
-    //for (unsigned int i = 0; i < SSmodel::inputs.table.size(); i++){
-    //  printf("%s ", SSmodel::inputs.table[i].c_str());
-    //}
+    // if (showTable){
+    //     for (auto i = SSmodel::inputs.table.begin(); i != SSmodel::inputs.table.end(); i++){
+    //         cout << *i << " ";
+    //     }
+    // }
+    if (showTable){
+        for (unsigned int i = 0; i < SSmodel::inputs.table.size(); i++){
+            printf("%s ", SSmodel::inputs.table[i].c_str());
+        }
+    }
 }
 // Disturbance smoother (to recover just trend and epsilons)
-void BSMmodel::disturb(){
+void BSMclass::disturb(){
     inputs.eps.zeros(SSmodel::inputs.y.n_elem);
     if (inputs.irregular[0] == 'a' && inputs.ar == 0 && inputs.ma == 0){
         // Modification adding the observation noise as a final state
@@ -1405,19 +2339,29 @@ void BSMmodel::disturb(){
         // Modifying system
         int nsAll = sum(inputs.ns) + 1;
         // int nu = SSmodel::inputs.u.n_rows;
+        bool TVP = (copiaSS.system.Z.n_rows > 1);
         mat T(nsAll, nsAll), R(nsAll, nsAll), Q(nsAll, nsAll), Z(1, nsAll); //, D(1, nu);
+        if (TVP)
+            Z.resize(copiaSS.u.n_cols, nsAll);
         T.fill(0);
         R.eye();
         Q.fill(0);
         Z.fill(0);
         nsAll -= 2;
         T(span(0, nsAll), span(0, nsAll)) = copiaSS.system.T;
+        //R(span(0, nsAll), span(0, nsAll)) = copiaSS.system.R;
         R(span(0, nsAll), span(0, nsAll + 1)) = copiaSS.system.R;
         R(nsAll + 1, nsAll + 1) = 1;
         Q = copiaSS.system.Q;
         Q(nsAll + 1, nsAll + 1) = copiaSS.system.H(0, 0);
-        Z(0, span(0, nsAll)) = copiaSS.system.Z;
-        Z(0, nsAll + 1) = copiaSS.system.C(0, 0);
+        //Q(span(0, nsAll), span(0, nsAll)) = copiaSS.system.Q;
+        if (TVP){
+            Z.cols(0, nsAll) = copiaSS.system.Z;
+            Z.col(nsAll + 1).fill(copiaSS.system.C(0, 0));
+        } else {
+            Z(0, span(0, nsAll)) = copiaSS.system.Z;
+            Z(0, nsAll + 1) = copiaSS.system.C(0, 0);
+        }
         // copying into copiaSS
         copiaSS.system.T = T;
         copiaSS.system.R = R;
@@ -1443,7 +2387,7 @@ void BSMmodel::disturb(){
 // Gauss-Newton Minimum searcher
 // First with numerical gradient function and second with
 //                gradient supplied by user
-int BSMmodel::quasiNewtonBSM(std::function <double (vec& x, void* inputsFake)> objFun,
+int BSMclass::quasiNewtonBSM(std::function <double (vec& x, void* inputsFake)> objFun,
                              std::function <vec (vec& x, void* inputsFake, double obj, int& nFuns)> gradFun,
                              vec& xNew, void* inputsFake, double& objNew, vec& gradNew, mat& iHess,
                              bool verbosef){
@@ -1509,7 +2453,7 @@ int BSMmodel::quasiNewtonBSM(std::function <double (vec& x, void* inputsFake)> o
         xOld = xNew; gradOld = gradNew; objOld = objNew;
         alpha_i = 0.5;
         // storing in case objNew becomes nan
-        innVar = SSmodel::inputs.innVariance;  
+        innVar = SSmodel::inputs.innVariance;
         d_old = d;
         lineSearch(objFun, alpha_i, xNew, objNew, gradNew, d, nIter, nFuns, inputsFake);
         // Correcting when function becomes nan
@@ -1589,7 +2533,12 @@ int BSMmodel::quasiNewtonBSM(std::function <double (vec& x, void* inputsFake)> o
         }
         // Try other initial conditions because non decreasing or nan function
         // Provisions when  problems with optimisation
-        if (flag > 105 && newTry < 4){   
+        if (flag > 5){
+            objNew = objOld;
+            gradNew = gradOld;
+            xNew = xOld;
+        }
+        if (flag > 105 && newTry < 4){
             newTry++;
             flag = 0;
             if (SSmodel::inputs.verbose){
@@ -1633,12 +2582,58 @@ int BSMmodel::quasiNewtonBSM(std::function <double (vec& x, void* inputsFake)> o
     SSmodel::inputs.pTransform = xUncon;
     return flag;
 }
+// Get states names
+string stateNames(BSMmodel sys){
+    string namesStates = "Level";
+    uword j;
+    if (sys.ns(0) > 1)
+        namesStates += "/Slope";
+    if (sys.ns(1) > 0){
+        j = 1;
+        for (uword i = 0; i < sys.ns(1); i = i + 2){
+            namesStates += "/Cycle" + to_string(j) + 
+                           "/Cycle" + to_string(j) + "*";
+            j++;
+        }
+    }
+    if (sys.ns(2) > 0){
+        if (sys.seasonal[0] != 'l'){
+            uword nharm = ceil(sys.ns(2) / 2);
+            vec periods = sys.periods.tail_rows(nharm);
+            j = 1;
+            for (uword i = 0; i < sys.ns(2); i = i + 2){
+                namesStates += "/Seasonal" + to_string(j);
+                if (sys.periods(j - 1) != 2)
+                    namesStates += "/Seasonal" + to_string(j) + "*";
+                j++;
+            }
+        } else {
+            for (uword i = 0; i < sys.ns(2); i++){
+                namesStates += "/Seasonal" + to_string(i + 1);
+            }
+        }
+    }
+    if (sys.ns(3) > 0){
+        for (uword i = 0; i < sys.ns(3); i++){
+            if (i == 0)
+                namesStates += "/Irregular" + to_string(i + 1);
+            else
+                namesStates += "/Irr*";
+        }
+    }
+    if (sys.ns(6) > 0){
+        for (uword i = 0; i < sys.TVP.n_elem; i++){
+            namesStates += "/TVP(" + to_string(i + 1) + ")";
+        }
+    }
+    return namesStates;
+}
 // Count states and parameters of BSM model
-void BSMmodel::countStates(vec periods, string trend, string cycle, string seasonal, string irregular){
+void BSMclass::countStates(vec periods, string trend, string cycle, string seasonal, string irregular){
     // string trend, string cycle, string seasonal, string irregular, 
     // int nu, vec P, vec rhos, vec& ns, vec& nPar, int& arOrder, 
     // int& maOrder, bool& exact
-    inputs.ns = zeros(6);
+    inputs.ns = zeros(7);
     inputs.nPar = inputs.ns;
     SSmodel::inputs.exact = true;
     if (SSmodel::inputs.augmented){
@@ -1649,22 +2644,26 @@ void BSMmodel::countStates(vec periods, string trend, string cycle, string seaso
     if (trend[0] == 'l'){         // LLT trend
         inputs.ns(0) = 2;
         inputs.nPar(0) = 2;
-    } else if (trend[0] == 'd'){  // Damped trend
+    } else if (trend[0] == 'd' || trend[0] == 's'){  // Damped or Hyndman damped trend
         inputs.ns(0) = 2;
         inputs.nPar(0) = 3;
         SSmodel::inputs.exact = false;
         SSmodel::inputs.cLlik = true;
-        SSmodel::inputs.augmented = true;
+        SSmodel::inputs.augmented = false;
     } else if(trend[0] == 'r'){   // RW trend
         inputs.ns(0) = 1;
         inputs.nPar(0) = 1;
-    } else if(trend[0] == 'i'){   // IRW trend
+    } else if(trend[0] == 'i' || trend[0] == 't'){   // IRW trend or trend with drift
         inputs.ns(0) = 2;
         inputs.nPar(0) = 1;
     } else {                      // No trend
         inputs.ns(0) = 1;
         inputs.nPar(0) = 0;
     }
+    if (trend[0] == 't')
+        inputs.Drift = true;
+    else
+        inputs.Drift = false;
     // Cycle
     int nCycles = 0;
     if (cycle[0] != 'n'){
@@ -1690,6 +2689,9 @@ void BSMmodel::countStates(vec periods, string trend, string cycle, string seaso
     } else if (seasonal[0] == 'd'){  // All different
         inputs.ns(2) = nHarm * 2 - minus;
         inputs.nPar(2) = nHarm;
+    } else if (seasonal[0] == 'l'){   // Linear
+        inputs.ns(2) = inputs.seas - 1;
+        inputs.nPar(2) = 1;
     } else {                        // No seasonal
         inputs.ns(2) = 0;
         inputs.nPar(2) = 0;
@@ -1721,7 +2723,13 @@ void BSMmodel::countStates(vec periods, string trend, string cycle, string seaso
     if (nu > 0){
         SSmodel::inputs.exact = false;
         SSmodel::inputs.cLlik = true;
-        SSmodel::inputs.augmented = true;
+        if (sum(inputs.TVP) > 0){
+            SSmodel::inputs.augmented = false;
+            inputs.ns(6) = nu;
+            inputs.nPar(6) = sum(inputs.TVP);
+        } else {
+            SSmodel::inputs.augmented = true;
+        }
     }
     // Checking pureARMA model without inputs or with just constant
     inputs.pureARMA = false;
@@ -1733,15 +2741,23 @@ void BSMmodel::countStates(vec periods, string trend, string cycle, string seaso
     }
 }
 // Fix matrices in standard BSM models (all except variances)
-void BSMmodel::initMatricesBsm(vec periods, vec rhos, string trend, string cycle, string seasonal, string irregular){
-    int nsCol;
+void BSMclass::initMatricesBsm(vec periods, vec rhos, string trend, string cycle, string seasonal, string irregular){
+    int nsCol, nsColTVP;
     countStates(periods, trend, cycle, seasonal, irregular);
     // Initializing system matrices
     int nsAll = sum(inputs.ns);
     SSmodel::inputs.system.T.eye(nsAll, nsAll);
     nsCol = sum(inputs.ns(span(0, 2))) + 1;
-    SSmodel::inputs.system.R.eye(nsAll, nsCol);
-    SSmodel::inputs.system.Q.zeros(nsCol, nsCol);
+    nsColTVP = nsCol + inputs.ns(6);
+    //SSmodel::inputs.system.R.eye(nsAll, nsCol);
+    SSmodel::inputs.system.R.resize(nsAll, nsColTVP);
+    SSmodel::inputs.system.R.submat(0, 0, nsAll - 1, nsCol - 1) = eye(nsAll, nsCol);
+    uword nTVP = sum(inputs.TVP);
+    if (nTVP > 0){
+        uword nu = SSmodel::inputs.u.n_rows;
+        SSmodel::inputs.system.R.submat(nsAll - nu, nsColTVP - nu, nsAll - 1, nsColTVP - 1) = eye(nu, nu);
+    }
+    SSmodel::inputs.system.Q.zeros(nsColTVP, nsColTVP);
     SSmodel::inputs.system.Gam = SSmodel::inputs.system.D = SSmodel::inputs.system.S = 0.0;
     SSmodel::inputs.system.Z.zeros(1, nsAll);
     SSmodel::inputs.system.C.ones(1, 1);
@@ -1759,9 +2775,19 @@ void BSMmodel::initMatricesBsm(vec periods, vec rhos, string trend, string cycle
     }
     // Seasonal
     if (inputs.ns(2) > 0){
-        aux = find(rhos > 0);
-        bsm2ss(inputs.ns(0) + inputs.ns(1), inputs.ns(2), abs(periods(aux)), 
-               abs(rhos(aux)), &SSmodel::inputs.system.T, &SSmodel::inputs.system.Z);
+        if (seasonal[0] != 'l'){
+            aux = find(rhos > 0);
+            bsm2ss(inputs.ns(0) + inputs.ns(1), inputs.ns(2), abs(periods(aux)),
+                   abs(rhos(aux)), &SSmodel::inputs.system.T, &SSmodel::inputs.system.Z);
+        } else {
+            uword i1 = inputs.ns(0) + inputs.ns(1), i2 = i1 + inputs.ns(2) - 1;
+            SSmodel::inputs.system.Z(i1 + inputs.ns(2) - 1) = 1.0;
+            //SSmodel::inputs.system.Z(SSmodel::inputs.system.Z.n_elem - 1) = 1.0;
+            SSmodel::inputs.system.T(span(i1 + 1, i2), span(i1, i2)) = eye(inputs.seas - 2, inputs.seas - 1);
+            SSmodel::inputs.system.T(span(i1, i1), span(i1, i2)).fill(-1.0);
+            //SSmodel::inputs.system.T(i1, i2) = 1.0;
+            //SSmodel::inputs.system.T(i1, i1) = 0.0;
+        }
     }
     // Irregular as ARMA
     if (inputs.ar > 0 || inputs.ma > 0){   // ARMA
@@ -1772,6 +2798,11 @@ void BSMmodel::initMatricesBsm(vec periods, vec rhos, string trend, string cycle
     if (SSmodel::inputs.u.n_elem > 0 && sum(inputs.nPar.rows(0, 3)) == 1 && !inputs.pureARMA){
         SSmodel::inputs.system.T(0, 0) = 0;
     }
+    // Inputs as TVP
+    if (sum(inputs.TVP) > 0){
+        SSmodel::inputs.system.Z = repmat(SSmodel::inputs.system.Z, SSmodel::inputs.u.n_cols, 1);
+        SSmodel::inputs.system.Z.cols(nsAll - SSmodel::inputs.u.n_rows, nsAll -1) = SSmodel::inputs.u.t();
+    }
     // Pure ARMA
     if (inputs.pureARMA){
         // SSmodel::inputs.system.D = SSmodel::inputs.u;
@@ -1779,7 +2810,7 @@ void BSMmodel::initMatricesBsm(vec periods, vec rhos, string trend, string cycle
     }
 }
 // Initializing parameters of BSM model
-void BSMmodel::initParBsm(){
+void BSMclass::initParBsm(){
     int nTrue = sum(inputs.nPar);
     bool userP0 = true;
     uvec indNaN = find_nonfinite(SSmodel::inputs.p0);
@@ -1798,8 +2829,11 @@ void BSMmodel::initParBsm(){
         inputs.typePar(0) = -1;
     } else if (inputs.nPar(0) == 2){    // LLT trend
         SSmodel::inputs.p0(1) = -1.5;              // slope
-    } else if (inputs.nPar(0) == 1 && inputs.ns(0) > 1){   // IRW trend
-        SSmodel::inputs.p0(0) = -1.5;              // slope
+    } else if (inputs.nPar(0) == 1 && inputs.ns(0) > 1){   // IRW or trend with drift
+        if (inputs.Drift)                          // level of trend with drift
+            SSmodel::inputs.p0(0) = -1.15;
+        else
+            SSmodel::inputs.p0(0) = -1.5;              // slope
     }
     // Cycles
     if (inputs.nPar(1) > 0){
@@ -1833,8 +2867,8 @@ void BSMmodel::initParBsm(){
     //double BIC, AIC, AICc;
     // Estimating initial conditions for ARMA from innovations
     if (inputs.nPar(3) > 1){
-        double ini = sum(inputs.nPar(span(0, 2))) + 1;
-        aux = regspace<uvec>(ini, 1, sum(inputs.nPar) - 1);
+        uword ini = sum(inputs.nPar(span(0, 2))) + 1;
+        aux = regspace<uvec>(ini, 1, sum(inputs.nPar.rows(0, 3)) - 1);
         inputs.typePar(aux).fill(3);
         orders(0) = inputs.ar;
         orders(1) = inputs.ma; //nPar(3) - inputs.ar - 1;
@@ -1858,7 +2892,7 @@ void BSMmodel::initParBsm(){
                 beta0aux1 = -beta0aux;
                 absRoots = abs(roots(join_vert(uno, -beta0aux1)));
                 if (any(absRoots >= 1)){
-                    myError("\n\nUComp ERROR: Non-stationary model for AR initial conditions!!!\n", RUNNING_FROM_R);
+                    myError("\n\nERROR: Non-stationary model for AR initial conditions!!!\n");
                 }
             }
             if (inputs.ma > 0){
@@ -1868,7 +2902,7 @@ void BSMmodel::initParBsm(){
                 // Bringing MA polynomial to invertibility
                 absRoots = abs(roots(join_vert(uno, beta0aux)));
                 if (any(absRoots >= 1)){
-                    myError("\n\nUComp ERROR: Non-invertible model for MA initial conditions!!!\n", RUNNING_FROM_R);
+                    myError("\n\nERROR: Non-invertible model for MA initial conditions!!!\n");
                 }
             }
         }
@@ -1902,10 +2936,17 @@ void BSMmodel::initParBsm(){
             SSmodel::inputs.p0(aux) = beta0aux;
         }
     }
+    // inputs
     int nu = SSmodel::inputs.u.n_rows;
-    int ns = SSmodel::inputs.betaAug.n_rows;
-    if (nu > 0 && ns > 1){
-        SSmodel::inputs.system.D = SSmodel::inputs.betaAug.rows(ns - nu, ns - 1);
+    if (sum(inputs.TVP) > 0){
+        uword ini = sum(inputs.nPar.rows(0, 5));
+        aux = regspace<uvec>(ini, ini + sum(inputs.TVP) - 1);
+        SSmodel::inputs.p0(aux).fill(-1.5);
+    } else {
+        int ns = SSmodel::inputs.betaAug.n_rows;
+        if (nu > 0 && ns > 1){
+            SSmodel::inputs.system.D = SSmodel::inputs.betaAug.rows(ns - nu, ns - 1);
+        }
     }
     // Pure ARMA
     if (inputs.pureARMA){
@@ -1941,12 +2982,12 @@ void BSMmodel::initParBsm(){
             conc = 1;
         }
         if (conc(0) < 1e-6){
-            myError("\n\nUComp ERROR: Cannot select such small value for concentrated out variance!!!\n", RUNNING_FROM_R);
+            myError("\n\nERROR: Cannot select such small value for concentrated out variance!!!\n");
         }
         uvec ind2 = find(inputs.typePar == 0);
         vec variances = p0(ind2) / conc(0);
         if (any(variances < 0)){
-            myError("\n\nUComp ERROR: Initial conditions for variances must be non-negative!!!\n", RUNNING_FROM_R);
+            myError("\n\nERROR: Initial conditions for variances must be non-negative!!!\n");
         }
         variances(find(variances == 0)).fill(1e-70);
         variances = log(variances) / 2;
@@ -1962,7 +3003,7 @@ void BSMmodel::initParBsm(){
         if (ind.n_elem > 0){
             pp = p0(ind);
             if (any(pp > 1) || any(pp < 0)){
-                myError("\n\nUComp ERROR: Initial conditions for damping parameters must be between 0 and 1!!!\n", RUNNING_FROM_R);
+                myError("\n\nERROR: Initial conditions for damping parameters must be between 0 and 1!!!\n");
             }
             vec lim1(pp.n_elem); lim1.fill(0);
             vec lim2(pp.n_elem); lim2.fill(1);
@@ -2015,7 +3056,7 @@ void BSMmodel::initParBsm(){
  //  ************************************************************/
  // Variance matrices in standard BSM on top of fixed structure
  void bsmMatrices(vec p, SSmatrix* model, void* userInputs){
-     BSMinputs* inp = (BSMinputs*)userInputs;
+     BSMmodel* inp = (BSMmodel*)userInputs;
      vec nsCum = cumsum(inp->ns);
      vec nparCum = cumsum(inp->nPar);
      // Trend
@@ -2026,11 +3067,18 @@ void BSMmodel::initParBsm(){
          model->Q(0, 0) = exp(2 * p(0));
      } else if (inp->nPar(0) == 3){                     // Damped trend
          constrain(p(0), regspace<vec>(0, 1)); //exp(p(0)) / (1+ exp(p(0)));
-         model->T(1, 1) = p(0);
          model->Q(0, 0) = exp(2 * p(1));
          model->Q(1, 1) = exp(2 * p(2));
-     } else if (inp->nPar(0) == 1 && inp->ns(0) == 2){    // IRW
-         model->Q(1, 1) = exp(2 * p(0));
+         model->T(1, 1) = p(0);
+         if (inp->trend[0] == 's' && inp->MSOE){
+             model->T(0, 1) = p(0);
+             model->T(nsCum(nsCum.n_elem - 1), 1) = p(0);
+         }
+     } else if (inp->nPar(0) == 1 && inp->ns(0) == 2){    // IRW or trend with drift
+         if (inp->Drift)
+            model->Q(0, 0) = exp(2 * p(0));   // Trend with drift
+         else
+            model->Q(1, 1) = exp(2 * p(0));   // IRW
      } else if (inp->nPar(0) == 0 && inp->ns(0) == 1){  // No trend
          model->Q(0, 0) = 0;
      }
@@ -2072,7 +3120,9 @@ void BSMmodel::initParBsm(){
      if (inp->nPar(2) > 0){                               // With seasonal
          // Index of states for seasonal
          ind = regspace<uvec>(nsCum(1), 1, nsCum(2) - 1);
-         if (inp->nPar(2) == 1){                         // Equal variances
+         if (inp->seasonal[0] == 'l')
+             model->Q(ind(0), ind(0)) = exp(2 * p(nparCum(1)));
+         else if (inp->nPar(2) == 1){                         // Equal variances
              model->Q(ind, ind) = eye(inp->ns(2), inp->ns(2)) *
                  exp(2 * p(nparCum(1)));
          } else {                                        // Different variances
@@ -2103,10 +3153,18 @@ void BSMmodel::initParBsm(){
      if (inp->pureARMA){
          model->D(0, 0) = p(nparCum(5) - 1);
      }
+     // inputs
+     //showSS(*model);
+     if (sum(inp->TVP) > 0){
+         uvec aux1 = nsCum(5) + find(inp->TVP == 1) - 1;
+         uvec aux2 = regspace<uvec>(nparCum(5), 1, nparCum(6) - 1);
+         model->Q(aux1, aux1) = diagmat(exp(2 * p(aux2)));
+     }
+     //showSS(*model);
  }
 // Variance matrices in standard BSM on top of fixed structure for true parameters
 void bsmMatricesTrue(vec p, SSmatrix* model, void* userInputs){
-     BSMinputs* inp = (BSMinputs*)userInputs;
+     BSMmodel* inp = (BSMmodel*)userInputs;
      vec nsCum = cumsum(inp->ns);
      vec nparCum = cumsum(inp->nPar);
      // Trend
@@ -2117,11 +3175,18 @@ void bsmMatricesTrue(vec p, SSmatrix* model, void* userInputs){
          model->Q(0, 0) = p(0);
      } else if (inp->nPar(0) == 3){                     // Damped trend
          //constrain(p(0), regspace<vec>(0, 1)); //exp(p(0)) / (1+ exp(p(0)));
-         model->T(1, 1) = p(0);
          model->Q(0, 0) = p(1);
          model->Q(1, 1) = p(2);
-     } else if (inp->nPar(0) == 1 && inp->ns(0) == 2){    // IRW
-         model->Q(1, 1) = p(0);
+         model->T(1, 1) = p(0);
+         if (inp->trend[0] == 's' && inp->MSOE){
+             model->T(0, 1) = p(0);
+             model->T(nsCum(nsCum.n_elem - 1), 1) = p(0);
+         }
+     } else if (inp->nPar(0) == 1 && inp->ns(0) == 2){    // IRW or trend with drift
+         if (inp->Drift)
+             model->Q(0, 0) = p(0);    // Trend with drift
+         else
+            model->Q(1, 1) = p(0);     // IRW
      } else if (inp->nPar(0) == 0 && inp->ns(0) == 1){  // No trend
          model->Q(0, 0) = 0;
      }
@@ -2163,7 +3228,9 @@ void bsmMatricesTrue(vec p, SSmatrix* model, void* userInputs){
      if (inp->nPar(2) > 0){                               // With seasonal
          // Index of states for seasonal
          ind = regspace<uvec>(nsCum(1), 1, nsCum(2) - 1);
-         if (inp->nPar(2) == 1){                         // Equal variances
+         if (inp->seasonal[0] == 'l')
+             model->Q(ind(0), ind(0)) = p(nparCum(1));
+         else if (inp->nPar(2) == 1){                         // Equal variances
              model->Q(ind, ind) = eye(inp->ns(2), inp->ns(2)) *
                  p(nparCum(1));
          } else {                                        // Different variances
@@ -2194,7 +3261,13 @@ void bsmMatricesTrue(vec p, SSmatrix* model, void* userInputs){
      if (inp->pureARMA){
          model->D(0, 0) = p(nparCum(5) - 1);
      }
- }
+     // inputs
+     if (sum(inp->TVP) > 0){
+         uvec aux1 = nsCum(5) + find(inp->TVP == 1) - 1;
+         uvec aux2 = regspace<uvec>(nparCum(5), 1, nparCum(6) - 1);
+         model->Q(aux1, aux1) = diagmat(p(aux2));
+     }
+}
 // Remove elements of vector in n adjacent points
 uvec selectOutliers(vec& val, int nTogether, float limit){
     int n = val.n_elem - 1,
@@ -2254,7 +3327,7 @@ void trend2ss(int ns, mat* T, mat* Z){
 void bsm2ss(int ns0, int nsSeas, vec P, vec rhos, mat* T, mat* Z){
     bool minus = 1 - any(P == 2);
     uvec aux1 = regspace<uvec>(0, 2, nsSeas - 1) + ns0;
-    (*Z).cols(aux1) = ones(1, aux1.n_elem);
+    (*Z).cols(aux1) = ones(Z->n_rows, aux1.n_elem);
     vec sinf = sin(2 * (datum::pi) / P) % rhos;
     vec cosf = cos(2 * (datum::pi) / P) % rhos;
     vec oneZero(2); oneZero(0) = 1; oneZero(1) = 0;
@@ -2328,7 +3401,7 @@ void modelCorrect(string& model, string& cycle, string& cycle0, vec& periods, ve
     vec pCycles = periods(find(rhos < 0));
     double s = max(periods(find(rhos > 0)));
     if (any(abs(pCycles) < 1.5 * s) || any(abs(pCycles) <= 2)){
-        myError("\n\nUComp ERROR: Cycle period too small!!", RUNNING_FROM_R);
+        myError("\n\nERROR: Cycle period too small!!");
     }
     uvec sIndex = sort_index(abs(periods), "descend");
     periods = sign(periods(sIndex)) % sort(abs(periods), "descend");
@@ -2348,7 +3421,7 @@ void calculateLimits(int n, vec periods, vec rhos, mat& cycleLimits, double s){
     //double s = max(periods(span(nCycles, periods.n_elem - 1)));
     // Sorting intermediate limits
     if (any(abs(pCycles) < 1.5 * s) || any(abs(pCycles) <= 2)){
-        myError("\n\nUComp ERROR: Cycle period too small!!", RUNNING_FROM_R);
+        myError("\n\nERROR: Cycle period too small!!");
     }
     for (int i = 1; i < nCycles; i++){
         if (pCycles(i) > 0){
@@ -2389,19 +3462,101 @@ void calculateLimits(int n, vec periods, vec rhos, mat& cycleLimits, double s){
             cycleLimits(0, 1) = min(aux);
         }
         if (-pCycles(0) <= cycleLimits(0, 0)){
-            myError("\n\nUComp ERROR: Initial condition for cycle too small!!!\n\n", RUNNING_FROM_R);
+            myError("\n\nERROR: Initial condition for cycle too small!!!\n\n");
         } else if (-pCycles(0) >= cycleLimits(0, 1)){
-            myError("\n\nUComp ERROR: Initial condition for cycle too big!!!\n\n", RUNNING_FROM_R);
+            myError("\n\nERROR: Initial condition for cycle too big!!!\n\n");
         }
     }
     int nCycles1 = nCycles - 1;
     if (pCycles(nCycles1) < 0){
        cycleLimits(nCycles1, 0) = s * 1.5;
         if (-pCycles(nCycles1) <= cycleLimits(nCycles1, 0)){
-            myError("\n\nUComp ERROR: Initial condition for cycle too small!!!\n\n", RUNNING_FROM_R);
+            myError("\n\nERROR: Initial condition for cycle too small!!!\n\n");
         } else if (-pCycles(nCycles1) >= cycleLimits(nCycles1, 1)){
-            myError("\n\nUComp ERROR: Initial condition for cycle too big!!!\n\n", RUNNING_FROM_R);
+            myError("\n\nERROR: Initial condition for cycle too big!!!\n\n");
         }
     }
 }
-
+// Find first observation of n non-nan contiguous values
+int findFirst(vec y, int n){
+    uvec indFinite, poly(n, fill::ones), aux3;
+    indFinite = find_finite(y);
+    aux3 = conv(diff(indFinite), poly);
+    int iniObs = indFinite(min(find(aux3.rows(n - 1, aux3.n_elem - 1) == n)));
+    return iniObs;
+}
+// Translates names from UC to PTS
+string UC2PTS(string modelUC){
+    vector<string> aux;
+    chopString(modelUC, "/", aux);
+    // noise
+    string model = "(A,";
+    if (aux[3] == "none")
+        model = "(N,";
+    // trend
+    if (aux[0] == "rw" || aux[0] == "none")
+            model += "N,";
+    else if (aux[0] == "srw")
+            model += "Ad,";
+    else if (aux[0] == "llt")
+            model += "A,";
+    else if (aux[0] == "td")
+            model += "L,";
+    // seasonal
+    if (aux[2] == "none")
+            model += "N)";
+    else if (aux[2] == "equal")
+            model += "E)";
+    else if (aux[2] == "different")
+            model += "D)";
+    else if (aux[2] == "linear")
+            model += "L)";
+    return model;
+}
+// Show SSmodel
+void showSS(SSmatrix m){
+    printf("*********** SS system start *********\n");
+    m.T.print("Matrix T:");
+    m.R.print("Matrix R:");
+    m.Q.print("Matrix Q:");
+    mat RQR = m.R * m.Q * m.R.t();
+    RQR.print("Matrix RQR:");
+    if (m.Z.n_rows > 10)
+        m.Z.rows(0, 9).print("First 10 rows of matrix Z:");
+    else
+        m.Z.print("Matrix Z:");
+    printf("*********** SS system end *********\n");
+}
+// Show BSMmodel
+void showBSM(BSMmodel m){
+    printf("*********** BSM model start *********\n");
+    printf("model: %s\n", m.model.c_str());
+    printf("criterion: %s\n", m.criterion.c_str());
+    printf("stepwise: %10i\n", m.stepwise);
+    printf("tTest: %10i\n", m.tTest);
+    printf("arma: %10i\n", m.arma);
+    m.periods.t().print("periods:");
+    printf("trend: %s\n", m.trend.c_str());
+    printf("seasonal: %s\n", m.seasonal.c_str());
+    printf("irregular: %s\n", m.irregular.c_str());
+    printf("compNames: %s\n", m.compNames.c_str());
+    printf("ar: %10i\n", m.ar);
+    printf("ma: %10i\n", m.ma);
+    m.rhos.t().print("rhos:");
+    m.ns.t().print("ns:");
+    m.nPar.t().print("nPar:");
+    m.p0Return.t().print("p0Return:");
+    m.typePar.t().print("typePar:");
+    m.eps.t().print("eps:");
+    m.beta0ARMA.t().print("beta0ARMA:");
+    m.constPar.t().print("constPar:");
+    m.harmonics.t().print("harmonics:");
+    m.comp.print("comp:");
+    m.typeOutliers.t().print("typeOutliers:");
+    m.cycleLimits.print("cycleLimits:");
+    printf("pureARMA: %10i\n", m.pureARMA);
+    for (uword i = 0; i < m.parNames.size(); i++){
+        printf("%s / ", m.parNames[i].c_str());
+    }
+    printf("\n*********** BSM model end *********");
+}

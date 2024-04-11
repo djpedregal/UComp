@@ -13,7 +13,7 @@ double adfTest(vec&, vec, double&, double&, double&);
 // Augmented Dickey-Fuller test using criterion identification
 int adfTests(vec, double, string);
 // Harmonic regression
-void harmonicRegress(vec&, mat&, double, vec&, vec&, vec&);
+void harmonicRegress(vec&, mat&, vec, uword, vec&, vec&, vec&);
 // Select harmonics of seasonal component
 void selectHarmonics(vec&, mat&, vec, uvec&, vec&, string&);
 // Identify AR model via information criterion
@@ -42,6 +42,7 @@ double nanMean(vec y);
 rowvec nanMean(mat y);
 double nanStddev(vec y);
 rowvec nanStddev(mat y);
+double nanMin(vec y);
 // Incomplete beta function 
 double betaInc(double, double, double);
 // Standard deviation of vector or matrix (in cols) with nan or inf values
@@ -123,7 +124,7 @@ int adfTests(vec y, double nModels, string criterion){
   }
 }
 // Harmonic regression
-void harmonicRegress(vec& y, mat& u, vec period, vec& beta, vec& stdBeta, vec& e){
+void harmonicRegress(vec& y, mat& u, vec period, uword trendPow, vec& beta, vec& stdBeta, vec& e){
     // It includes a cubic trend, a constant, harmonics and inputs
     int n = y.n_elem, k = u.n_rows, pos;
     // if (season < 2) season = 4;
@@ -147,8 +148,8 @@ void harmonicRegress(vec& y, mat& u, vec period, vec& beta, vec& stdBeta, vec& e
         }
         nHarm = harm.n_elem;
     }
-    // Regressors (harmonics + constant + cuadratic trend + regressors)
-    mat X(n, nHarm * 2 + 4 - minus + k);
+    // Regressors (harmonics + constant + trend + regressors)
+    mat X(n, nHarm * 2 - minus + 1 + trendPow + k);
     if (seasonal){
         // Setting cos/sin regressors
         X.cols(span(0, nHarm - 1)) = kron(w, t);
@@ -156,13 +157,11 @@ void harmonicRegress(vec& y, mat& u, vec period, vec& beta, vec& stdBeta, vec& e
         X.cols(span(0, nHarm - 1)) = cos(X.cols(span(0, nHarm - 1)));
     }
     pos = 2 * nHarm - minus;
-    X.col(pos).fill(1);
     // Adding trend
     t = t / n;
-    X.col(pos + 1) = t;
-    X.col(pos + 2) = pow(t, 2);
-    X.col(pos + 3) = pow(t, 3);
-    pos += 4;
+    for (uword i = 0; i <= trendPow; i++)
+        X.col(pos + i) = pow(t, i);
+    pos += trendPow + 1;
     // Exogenous inputs
     if (k > 0){
         X.cols(span(pos, pos + k - 1)) = u.submat(0, 0, k - 1, n - 1).t();
@@ -177,7 +176,7 @@ void harmonicRegress(vec& y, mat& u, vec period, vec& beta, vec& stdBeta, vec& e
 // Select harmonics of seasonal component
 void selectHarmonics(vec& y, mat& u, vec period, uvec& harmonics, vec& beta, string& isSeasonal){
   vec stdBeta, e;
-  harmonicRegress(y, u, period, beta, stdBeta, e);
+  harmonicRegress(y, u, period, 3, beta, stdBeta, e);
   vec t = abs(beta) / stdBeta;
   int nHarm = ceil((beta.n_rows - u.n_rows - 4.0) / 2.0);
   uvec aux1 = regspace<uvec>(2 * nHarm - 1, t.n_elem - 1);
@@ -383,6 +382,7 @@ void heterosk(vec& y, double& F, double& pF, int& df){
   }
   pF = 2 * fCdf(F, df, df);
 }
+
 // Binomial CDF calculation
 double binoCdf(double k, double n, double p){
   vec pV(1);
@@ -427,7 +427,12 @@ vec tCdf(vec t, double v) {
 // Mean of vector or matrix (in cols) with nan or inf values
 double nanMean(vec y){
   int nNan;
-  return mean(removeNans(y, nNan));
+  vec x = removeNans(y, nNan);
+  if (x.n_elem == 0){
+      return datum::nan;
+  } else {
+    return mean(x);
+  }
 }
 rowvec nanMean(mat y){
   if (y.has_nan() || y.has_inf()){  // with Nans
@@ -464,7 +469,12 @@ rowvec nanStddev(mat y){
     return stddev(y);
   }
 }
-// Incomplete beta function 
+// Min of vector with nan or inf values
+double nanMin(vec y){
+  int nNan;
+  return min(removeNans(y, nNan));
+}
+// Incomplete beta function
 double betaInc(double a, double b, double x){
   // Abramowitz and Stegun, Handbook of Mathematical Functions
   // Press, WH and Teukolsky, SA (1988), Evaluating Continued 

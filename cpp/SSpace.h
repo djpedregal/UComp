@@ -30,17 +30,17 @@ struct SSinputs{
    // Outputs
    vec v,                 // innovations
        yFit,              // fitted values
-       F,                 // variance of fitted values
+       F,                 // Variance of fitted values
        yFor,              // output forecasts
-       FFor,              // variance of output forecasts
+       FFor,              // Variance of forecasts
        betaAug,           // betas of augmented KF (including initial states)
        betaAugVar,        // variances of betaAug (idag(iSn))
        criteria,          // identification criterion
-       coef;             // Coefs for coef function
-   mat a,                // estimated states
-       P,                // variances of states
-       eta,              // estimates of transition perturbations
-       covp;             // Covariance of parameters
+       coef;              // Coefs for coef function
+   mat a,                 // estimated states
+       P,                 // variances of states
+       eta,               // estimates of transition perturbations
+       covp;              // Covariance of parameters
    SSmatrix system;       // system matrices
    double objFunValue,    // value of objective function at optimum
           outlier;        // critical value for outlier detection
@@ -94,7 +94,7 @@ class SSmodel{
     // Disturbance pass
     void disturb();
     // Validation
-    void validate(bool);
+    void validate(bool, double);
     // // Getters and setters
     // Get inputs
     SSinputs getInputs(){
@@ -127,7 +127,8 @@ void MFK(mat&, vec&, mat, vec&, mat&, vec&);
 void aP(vec& at, mat& Pt, vec& Kt, vec& vt, vec& Mt);
 // Correction step of KF (llik)
 void KFcorrection(bool, bool, bool, bool, SSinputs*, mat, mat&, vec&,
-                  mat&, vec&, double, mat&, mat&, mat&, vec&, uword, vec&, mat&);
+                  mat&, vec&, double, mat&, mat&, mat&, vec&, uword,
+                  vec&, mat&, mat);
 // Auxiliar function for computing llik in KF (llik)
 void llikCompute(bool, mat, mat, mat, mat, mat&, mat&, mat&);
 // Prediction stage in KF (llik)
@@ -200,7 +201,7 @@ void SSmodel::estim(vec p){
   
   wall_clock timer;
   timer.tic();
-  int flag = quasiNewton(llik, gradLlik, p, &inputs, objFunValue, grad, iHess, inputs.verbose);
+  int flag = quasiNewton(inputs.llikFUN, gradLlik, p, &inputs, objFunValue, grad, iHess, inputs.verbose);
   // Information criteria
   uvec indNan = find_nonfinite(inputs.y);
   int nNan = inputs.y.n_elem - indNan.n_elem;
@@ -265,18 +266,23 @@ void SSmodel::forecast(){
     //   Pt = inputs.PEnd; // * inputs.innVariance;
     // }
     mat P0 = Pt;
-    if (k > 0){
-      int npar = inputs.betaAug.n_elem;
-      inputs.system.D = inputs.betaAug.rows(npar - k, npar - 1).t();
+    mat Z = inputs.system.Z.row(0);
+    uword t = inputs.y.n_elem;
+    bool TVP = (inputs.system.Z.n_rows > 1);
+    if (k > 0 && inputs.system.Z.n_rows == 1){
+        int npar = inputs.betaAug.n_elem;
+        inputs.system.D = inputs.betaAug.rows(npar - k, npar - 1).t();
     }
     for (int i = 0; i < inputs.h; i++){
-      inputs.yFor(span(i)) = inputs.system.Z * at;
-      if (k > 0){
-        inputs.yFor(span(i)) += inputs.system.D * SSmodel::inputs.u.col(n + i);
-      } else {
-        inputs.yFor(span(i)) += inputs.system.D;
+      if (TVP)
+          Z = inputs.system.Z.row(t + i);
+      inputs.yFor(span(i)) = Z * at;
+      if (k == 0){
+          inputs.yFor(span(i)) += inputs.system.D;
+      } else if (!TVP) {
+          inputs.yFor(span(i)) += inputs.system.D * SSmodel::inputs.u.col(n + i);
       }
-      inputs.FFor(span(i)) = inputs.system.Z * Pt * inputs.system.Z.t() + CHCt;
+      inputs.FFor(span(i)) = Z * Pt * Z.t() + CHCt;
       KFprediction(false, true, inputs.system.T, RQRt, at, Pt, P0);
     }
     // if (abs(inputs.innVariance - 1) < 1e-4){
@@ -304,7 +310,7 @@ void SSmodel::disturb(){
   SSmodel::filter(2);
 }
 // Validation
-void SSmodel::validate(bool estimateHess){
+void SSmodel::validate(bool estimateHess, double nPar){
   // Input is inverse of Hessian. Calculated if empty
   uvec auxx;
   // Inverse of hessian and covariance of parameters
@@ -333,34 +339,42 @@ void SSmodel::validate(bool estimateHess){
   char str[70];
   inputs.table.clear();
   inputs.table.push_back("-------------------------------------------------------------\n");
-  sprintf(str, " %s", inputs.estimOk.c_str());
+  snprintf(str, 70, " %s", inputs.estimOk.c_str());
   inputs.table.push_back(str);
   inputs.table.push_back("-------------------------------------------------------------\n");
   inputs.table.push_back("            Param       S.E.        |T|    P-value     |Grad| \n");
   inputs.table.push_back("-------------------------------------------------------------\n");
-  for (unsigned int i = 0; i < inputs.p.n_rows; i++){
-    sprintf(str, "       %10.4f %10.4f %10.4f %10.4f %10.6f\n", table0(i, 0), table0(i, 1), table0(i, 2), table0(i, 3), abs(inputs.grad(i)));
+  for (unsigned int i = 0; i < nPar; i++){
+    snprintf(str, 70, "       %10.4f %10.4f %10.4f %10.4f %10.6f\n", table0(i, 0), table0(i, 1), table0(i, 2), table0(i, 3), abs(inputs.grad(i)));
     inputs.table.push_back(str);
   }
   // Adding inputs betas
   int nu = inputs.u.n_rows;
   if (nu > 0){
-    int ind = inputs.betaAug.n_elem - nu;
-    vec betas = inputs.betaAug.rows(ind, ind + nu - 1);
-    vec stdBetas = sqrt(inputs.betaAugVar.rows(ind, ind + nu - 1));
+    vec betas, stdBetas;
+    if (inputs.system.Z.n_rows > 1){
+        filter();
+        betas = inputs.aEnd.rows(inputs.aEnd.n_rows - nu, inputs.aEnd.n_rows - 1);
+        vec dPEnd = inputs.PEnd.diag();
+        stdBetas = sqrt(dPEnd.rows(inputs.aEnd.n_rows - nu, inputs.aEnd.n_rows - 1));
+    } else {
+        int ind = inputs.betaAug.n_elem - nu;
+        betas = inputs.betaAug.rows(ind, ind + nu - 1);
+        stdBetas = sqrt(inputs.betaAugVar.rows(ind, ind + nu - 1));
+    }
     vec tBetas = betas / stdBetas;
     vec pValueBetas = 2 * (1- tCdf(tBetas, nn.n_elem - k));
     for (int i = 0; i < nu; i++){
-      sprintf(str, "       %10.4f %10.4f %10.4f %10.4f %10.6f\n", betas(i), 
+      snprintf(str, 70, "       %10.4f %10.4f %10.4f %10.4f %10.6f\n", betas(i), 
               stdBetas(i), tBetas(i), pValueBetas(i), datum::nan);
       inputs.table.push_back(str);
     }
   }
   uvec ind = find_finite(inputs.y);
   inputs.table.push_back("-------------------------------------------------------------\n");
-  sprintf(str, "  AIC: %12.4f   BIC: %12.4f   AICc: %12.4f\n", inputs.criteria(1), inputs.criteria(2), inputs.criteria(3));
+  snprintf(str, 70, "  AIC: %12.4f   BIC: %12.4f   AICc: %12.4f\n", inputs.criteria(1), inputs.criteria(2), inputs.criteria(3));
   inputs.table.push_back(str);
-  sprintf(str, "           Log-Likelihood: %12.4f\n", inputs.criteria(0));
+  snprintf(str, 70, "           Log-Likelihood: %12.4f\n", inputs.criteria(0));
   inputs.table.push_back(str);
   inputs.table.push_back("-------------------------------------------------------------\n");
   // Recovering innovations for tests
@@ -437,9 +451,9 @@ void aP(vec& at, mat& Pt, vec& Kt, vec& vt, vec& Mt){
 void KFcorrection(bool miss, bool colapsed, bool steadyState, bool smooth, 
                   SSinputs* data, mat CHCt,
                   mat& Finft, vec& vt, double Dt, mat& Ft, mat& iFt, vec& at, mat& Pt, 
-                  mat& Pinft, vec& Kt, uword t, vec& auxFinf, mat& auxKinf){
+                  mat& Pinft, vec& Kt, uword t, vec& auxFinf, mat& auxKinf, mat Z){
   vec Mt, Minft, Kinft;
-  mat KK, Z = data->system.Z;
+  mat KK;
   rowvec yt = data->y.row(t);
   mat iFinft;
   if (miss){
@@ -545,6 +559,10 @@ double llik(vec& p, void* opt_data){
     auxFinf = data->v;
     auxKinf = data->K;
   }
+  mat Z = data->system.Z.row(0);
+  bool TVP = false;
+  if (data->system.Z.n_rows > 1)
+      TVP = true;
   // KF loop
   for (uword t = 0; t < n; t++){
     // Data missing
@@ -555,9 +573,12 @@ double llik(vec& p, void* opt_data){
     } else {
       miss = false;
     }
+    if (TVP)
+        Z = Z = data->system.Z.row(t);
     // Correction
     KFcorrection(miss, colapsed, steadyState, data->exact, data, CHCt,
-                 Finft, vt, data->system.D(0, 0), Ft, iFt, at, Pt, Pinft, Kt, t, auxFinf, auxKinf);
+                 Finft, vt, data->system.D(0, 0), Ft, iFt, at, Pt, Pinft,
+                 Kt, t, auxFinf, auxKinf, Z);
     // llik calculation
     if (!miss && t < n)
       llikCompute(colapsed, Finft, vt, Ft, iFt, v2F, logF, llikValue);
@@ -952,13 +973,11 @@ void auxFilter(unsigned int smooth, SSinputs& data){
   RQRt = data.system.R * data.system.Q * data.system.R.t();
   CHCt = data.system.C * data.system.H * data.system.C.t();
   // Inputs part
-  rowvec Dt(n);
-  if (k > 0){
+  rowvec Dt(n, fill::zeros);
+  if (k > 0 && data.system.Z.n_rows == 1){
     int nn = data.betaAug.n_rows;
     data.system.D = data.betaAug.rows(nn - k, nn - 1).t();
     Dt = data.system.D * data.u;
-  } else {
-    Dt.fill(data.system.D(0));
   }
   KFinit(data.system.T, RQRt, ns, at, Pt, Pinft);
   data.v = zeros(n);
@@ -975,12 +994,19 @@ void auxFilter(unsigned int smooth, SSinputs& data){
   data.Finf = zeros(data.d_t + 1);
   data.Kinf = zeros(ns, data.d_t + 1);
   v2F.fill(0);
+  Kt.resize(ns);
+  mat Z = data.system.Z.row(0);
+  bool TVP = false;
+  if (data.system.Z.n_rows > 1)
+      TVP = true;
   // KF loop
   for (uword t = 0; t < n; t++){
+    if (TVP)
+        Z = data.system.Z.row(t);
     if (!colapsed && smooth > 0){
       Pinf.slice(t) = Pinft;
     }
-    data.yFit.row(t) = data.system.Z * at + Dt(t);
+    data.yFit.row(t) = Z * at + Dt(t);
     // Storing for smoothing/disturbing
     data.v.row(t) = data.y.row(t) - data.yFit.row(t);
     if (smooth > 0){
@@ -990,7 +1016,7 @@ void auxFilter(unsigned int smooth, SSinputs& data){
       if (steadyState){
         data_F.row(t) = data_F.row(t - 1);
       } else {
-        data_F.row(t) = data.system.Z * Pt * data.system.Z.t() + CHCt;
+        data_F.row(t) = Z * Pt * Z.t() + CHCt;
       }
     }
     // Data missing
@@ -1003,7 +1029,8 @@ void auxFilter(unsigned int smooth, SSinputs& data){
     }
     // Correction
     KFcorrection(miss, colapsed, steadyState, smooth, &data, CHCt,
-                 Finft, vt, Dt(t), Ft, iFt, at, Pt, Pinft, Kt, t, data.Finf, data.Kinf);
+                 Finft, vt, Dt(t), Ft, iFt, at, Pt, Pinft, Kt, t,
+                 data.Finf, data.Kinf, Z);
     if (!miss && t < n){
       if (colapsed || Finft(0, 0) < 1e-8){
         v2F  += vt * iFt * vt;
@@ -1016,7 +1043,7 @@ void auxFilter(unsigned int smooth, SSinputs& data){
     if (smooth > 0){
       data.K.col(t) = Kt;
     } else {
-      data.yFit.row(t) = data.system.Z * at + Dt(t);
+      data.yFit.row(t) = Z * at + Dt(t);
       data.a.col(t) = at;
       data.P.col(t) = Pt.diag();
     }
@@ -1076,6 +1103,8 @@ void auxFilter(unsigned int smooth, SSinputs& data){
     // Main Loop
     int intN = n;
     for (int t = n - 1; t >= 0; t--){
+      if (TVP)
+        Z = data.system.Z.row(t);
       if (t <= data.d_t){
         colapsed = false;
       }
@@ -1090,25 +1119,25 @@ void auxFilter(unsigned int smooth, SSinputs& data){
       if (is_finite(data.y.row(t))){
         miss = false;
         if (colapsed || Finft(0, 0) < 1e-8) {
-          Lt = data.system.T - data.system.T * Kt * data.system.Z;
-          Z_Ft = data.system.Z.t() * iFt(0);
+          Lt = data.system.T - data.system.T * Kt * Z;
+          Z_Ft = Z.t() * iFt(0);
           rt = Z_Ft * vt + Lt.t() * rt;
-          Nt = Z_Ft * data.system.Z + Lt.t() * Nt * Lt;
+          Nt = Z_Ft * Z + Lt.t() * Nt * Lt;
           if (!colapsed){
               rinft = data.system.T.t() * rinft;
               N2t = data.system.T.t() * N2t * data.system.T;
               Ninft = data.system.T.t() * Ninft * Lt;
           }
         } else if (Finft(0, 0) >= 1e-8) {
-            Lt = data.system.T - data.system.T * Kinft * data.system.Z;
-            Linft = -data.system.T * Kt * data.system.Z;
-            Z_Finft = data.system.Z.t() * iFt(0, 0);  //  / Finft(0, 0);
+            Lt = data.system.T - data.system.T * Kinft * Z;
+            Linft = -data.system.T * Kt * Z;
+            Z_Finft = Z.t() * iFt(0, 0);  //  / Finft(0, 0);
             rinft = Z_Finft * vt + Lt.t() * rinft + Linft.t() * rt;
             rt = Lt.t() * rt;
             LinftNt = Lt.t() * Ninft * Linft;
             N2t = -Z_Finft * Z_Finft.t() * Ft(0, 0) + Linft.t() * Nt * Linft +
                 LinftNt + LinftNt.t() + Lt.t() * N2t * Lt;
-            Ninft = Z_Finft * data.system.Z + Lt.t() * Ninft * Lt + Linft.t() * Nt * Lt;
+            Ninft = Z_Finft * Z + Lt.t() * Ninft * Lt + Linft.t() * Nt * Lt;
             Nt = Lt.t() * Nt * Lt;
         }
       } else {
@@ -1120,13 +1149,13 @@ void auxFilter(unsigned int smooth, SSinputs& data){
         Pinft = Pinf.slice(t);
         data.a.col(t) += Pinft * rinft;
       }
-      data.yFit.row(t) = data.system.Z * data.a.col(t) + Dt(t); // + data.system.D;
+      data.yFit.row(t) = Z * data.a.col(t) + Dt(t); // + data.system.D;
       Pt -= Pt * Nt * Pt;
       if (!colapsed){
         PPinf = Pinft * Ninft * Pt;
         Pt = Pt - PPinf - PPinf.t() - Pinft * N2t * Pinft;
       }
-      data.F.row(t) = data.system.Z * Pt * data.system.Z.t() + CHCt;
+      data.F.row(t) = Z * Pt * Z.t() + CHCt;
       data.P.col(t) = Pt.diag();
       //Disturbance smoother
       if (smooth == 2 && t < intN - data.h){
@@ -1201,8 +1230,9 @@ void auxFilter(unsigned int smooth, SSinputs& data){
 // Estimation table
 void outputTable(vec v, vector<string>& table){
   int nNan, n = v.n_elem;
-  vec vn = removeNans(v, nNan);
-  uvec outliers = find(abs(v) > 2.7 * stddev(vn) + mean(vn));
+  vec vn = v - nanMean(v);
+  vn = removeNans(vn, nNan);
+  uvec outliers = find(abs(vn) > 2.7 * stddev(vn));
   int nOutliers = outliers.n_elem;
   vec vClean = v;
   vClean(outliers).fill(datum::nan);
@@ -1249,34 +1279,34 @@ void outputTable(vec v, vector<string>& table){
   // Table
   char str[70];
   ind = ind + 1;
-  sprintf(str, "        Missing data: %5.0i\n", nNan);
+  snprintf(str, 70, "        Missing data: %5.0i\n", nNan);
   table.push_back(str);
-  sprintf(str, "        Q(%2.0i): %12.4f         Q(%2.0i): %12.4f\n", (int)ind(0), Q1(0), (int)ind(1), Q1(1));
+  snprintf(str, 70, "        Q(%2.0i): %12.4f         Q(%2.0i): %12.4f\n", (int)ind(0), Q1(0), (int)ind(1), Q1(1));
   table.push_back(str);
-  sprintf(str, "        Q(%2.0i): %12.4f         Q(%2.0i): %12.4f\n", (int)ind(2), Q1(2), (int)ind(3), Q1(3));
+  snprintf(str, 70, "        Q(%2.0i): %12.4f         Q(%2.0i): %12.4f\n", (int)ind(2), Q1(2), (int)ind(3), Q1(3));
   table.push_back(str);
   if (ind.n_rows > 4){
-    sprintf(str, "        Q(%2.0i): %12.4f         Q(%2.0i): %12.4f\n", (int)ind(4), Q1(4), (int)ind(5), Q1(5));
+    snprintf(str, 70, "        Q(%2.0i): %12.4f         Q(%2.0i): %12.4f\n", (int)ind(4), Q1(4), (int)ind(5), Q1(5));
     table.push_back(str);
   }
-  sprintf(str,   "  Bera-Jarque: %12.4f       P-value: %12.4f\n", bj1, pbj1);
+  snprintf(str, 70, "  Bera-Jarque: %12.4f       P-value: %12.4f\n", bj1, pbj1);
   table.push_back(str);
-  sprintf(str,   "      H(%4.0i): %12.4f       P-value: %12.4f\n", df1, F1, pF1);
+  snprintf(str, 70, "      H(%4.0i): %12.4f       P-value: %12.4f\n", df1, F1, pF1);
   table.push_back(str);
   if (nOutliers > 0){
-    sprintf(str, "  Outliers (>2.7 ES): %5.0i\n", nOutliers);
+    snprintf(str, 70, "  Outliers (>2.7 ES): %5.0i\n", nOutliers);
     table.push_back(str);
-    sprintf(str, "        Q(%2.0i): %12.4f         Q(%2.0i): %12.4f\n", (int)ind(0), Q2(0), (int)ind(1), Q2(1));
+    snprintf(str, 70, "        Q(%2.0i): %12.4f         Q(%2.0i): %12.4f\n", (int)ind(0), Q2(0), (int)ind(1), Q2(1));
     table.push_back(str);
-    sprintf(str, "        Q(%2.0i): %12.4f         Q(%2.0i): %12.4f\n", (int)ind(2), Q2(2), (int)ind(3), Q2(3));
+    snprintf(str, 70, "        Q(%2.0i): %12.4f         Q(%2.0i): %12.4f\n", (int)ind(2), Q2(2), (int)ind(3), Q2(3));
     table.push_back(str);
     if (ind.n_rows > 4){
-      sprintf(str, "        Q(%2.0i): %12.4f         Q(%2.0i): %12.4f\n", (int)ind(4), Q2(4), (int)ind(5), Q2(5));
+      snprintf(str, 70, "        Q(%2.0i): %12.4f         Q(%2.0i): %12.4f\n", (int)ind(4), Q2(4), (int)ind(5), Q2(5));
       table.push_back(str);
     }
-    sprintf(str,   "  Bera-Jarque: %12.4f       P-value: %12.4f\n", bj2, pbj2);
+    snprintf(str, 70, "  Bera-Jarque: %12.4f       P-value: %12.4f\n", bj2, pbj2);
     table.push_back(str);
-    sprintf(str,   "      H(%4.0i): %12.4f       P-value: %12.4f\n", df2, F2, pF2);
+    snprintf(str, 70, "      H(%4.0i): %12.4f       P-value: %12.4f\n", df2, F2, pF2);
     table.push_back(str);
   }
 }

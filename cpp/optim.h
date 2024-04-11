@@ -35,7 +35,13 @@ int quasiNewton(std::function <double (vec& x, void* inputs)> objFun,
   int nx = xNew.n_elem, flag = 0, nOverallFuns, nFuns = 0, nIter = 0;
   double objOld, alpha_i;
   vec gradOld(nx), xOld = xNew, d(nx); 
-  vec crit(3); crit(0) = 1e-8; crit(1) = 1e-12; crit(2) = 1000;
+  // crit: Criteria to stop quasi-Newton:
+        // Gradient
+        // Difference in obj function
+        // Difference in parameter values
+        // Maximum number of iterations
+        // Maximum number of function evaluations
+  vec crit(5); crit(0) = 1e-8; crit(1) = 1e-12; crit(2) = 1e-6; crit(3) = 1000; crit(4) = 20000;
   
   iHess.eye(nx, nx);
   objNew = objFun(xNew, inputs);
@@ -66,6 +72,11 @@ int quasiNewton(std::function <double (vec& x, void* inputs)> objFun,
     // flag = stopCriteria(crit, gradNew, objOld - objNew, nIter, nOverallFuns);
     flag = stopCriteria(crit, mean(abs(gradNew)), abs(objOld - objNew) / abs(objOld), 
                         mean(abs(xOld - xNew) / abs(xOld)), nIter, nOverallFuns);
+    if (flag > 5){
+        objNew = objOld;
+        gradNew = gradOld;
+        xNew = xOld;
+    }
     // Inverse Hessian BFGS update
     if (!flag){
       bfgs(iHess, gradNew - gradOld, xNew - xOld, nx, nIter);
@@ -76,13 +87,7 @@ int quasiNewton(std::function <double (vec& x, void* inputs)> objFun,
 // Stop criteria in non-linear search 
 int stopCriteria(vec crit, double gradNew, double dobj, double dPar, int nIter, int nOverallFuns){
   int flag = 0;
-  // crit: Criteria to stop Gauss-Newton:
-        // Gradient
-        // Difference in obj function
-        // Difference in parameter values
-        // Maximum number of iterations
-        // Maximum number of function evaluations
-  // flags:
+  // Stop criteria flags:
         // Gradient
         // Difference in obj function
         // Difference in parameter values
@@ -159,5 +164,3 @@ void lineSearch(std::function <double (vec& x, void* inputs)> objFun,
   //     nFuns -= 1;
   // }
 }
-
-

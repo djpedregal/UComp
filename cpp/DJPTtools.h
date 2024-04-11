@@ -6,6 +6,8 @@
 /**********************
  Function declarations
  **********************/
+// Converting string variable to upper letters
+void upper(string&);
 // Converting string variable to lower letters
 void lower(string&);
 // Replace "what" by string "by" in string "input"
@@ -23,15 +25,22 @@ void unconstrain(vec&, mat);
 template <class T>
 T removeNans(T, int&);
 // Build a lagged matrix of a time series lagged
-mat lag(vec, vec);
+template <class T>
+mat lag(vec, T);
 // Chop a string according to substring
 void chopString(string, string, vector<string>&);
+// Find the first indexes of contiguos elements in vector
+uvec findChunk(uvec, bool);
 // Issuing errors
 void myError(const char*, bool);
 
 /**********************
  Function implementations
  **********************/
+// Converting string variable to upper letters
+void upper(string& model){
+  transform(model.begin(), model.end(), model.begin(), :: toupper);
+}
 // Converting string variable to lower letters
 void lower(string& model){
   transform(model.begin(), model.end(), model.begin(), :: tolower);
@@ -89,7 +98,8 @@ T removeNans(T y, int& nNan){
   return y.rows(ind);
 }
 // Build a lagged matrix of a time series
-mat lag(vec y, vec lags){
+template <class T>
+mat lag(vec y, T lags){
   int n = y.n_elem, m = lags.n_elem, maxLag = max(lags), ii;
   mat lagY(n - maxLag, m);
 
@@ -102,22 +112,37 @@ mat lag(vec y, vec lags){
 // Chop a string according to substring
 void chopString(string str, string sub, vector<string>& out) {
   size_t pos = -1, pos0;
+  out.clear();
   do {
     pos0 = pos;
     pos = str.find(sub, pos + 1);
     out.push_back(str.substr(pos0 + 1, pos - pos0 - 1));
   } while(pos != string::npos);
 }
+// Find indexes of contiguos elements in vector
+uvec findChunk(uvec x, bool last){
+    uvec chunk;
+    uvec dx = diff(x);
+    uvec aux;
+    if (last)
+        aux = find(dx != -1);
+    else
+        aux = find(dx != 1);
+    if (aux.n_elem == 0)
+        chunk = x;
+    else
+        chunk = x.rows(0, min(aux));
+    return chunk;
+}
 // Issuing errors
-void myError(const char* msg, bool R){
-    vec p(3);
+void myError(const char* msg){
+    vec p(1);
     //if (R){
       //Rf_error(msg);
       //Rcerr << msg << endl;
     //} else {
         printf("%s", msg);
-        p = p(4) * 2;
+        p = p(2) * 2;
     //}
 }
-
 
