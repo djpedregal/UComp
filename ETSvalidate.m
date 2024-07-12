@@ -28,7 +28,7 @@ function m = ETSvalidate(m, show)
         m.comp = array2table(comp, 'VariableNames', split(string(compNames), "/"));
     end
     m.table = table;
-    if show
+    if m.verbose
         for i = 1 : length(m.table)
           disp(m.table{i}(1 : end - 1))
         end

@@ -42,6 +42,5 @@ function m1 = ETS(y, s, varargin)
 %    m = ETS(y, 12, 'model', '???');
 %    m = ETS(y, 12, 'model', 'MAM', 'bootstrap', true);
     m1 = ETSsetup(y, s, varargin{:});
-    m1 = ETSestim(m1);
     m1 = ETSvalidate(m1, m1.verbose);
 end
