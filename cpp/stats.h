@@ -1,19 +1,30 @@
 /*************************
  Statistical tests and other useful tools
 **************************/
+// Regression models
+struct REGmodel{
+    // INPUTS:
+    vec y;              // output data
+    mat X;              // input data
+    // OUTPUTS
+    vec beta, e, stdBeta;
+    double AIC, BIC, AICc;
+    mat covBeta;
+};
 /***************************************************
 * Function declarations
 ****************************************************/
 // Autocorrelation function
 void acf(vec&, int, vec&);
 // Regression
+void regression(vec, mat, REGmodel&);
 void regress(vec, mat, vec&, vec&, vec&, double&, double&, double&);
 // Augmented Dickey-Fuller test
 double adfTest(vec&, vec, double&, double&, double&);
 // Augmented Dickey-Fuller test using criterion identification
 int adfTests(vec, double, string);
 // Harmonic regression
-void harmonicRegress(vec&, mat&, vec, uword, vec&, vec&, vec&);
+void harmonicRegress(vec&, mat&, vec, uword, vec&, vec&, vec&, vec&);
 // Select harmonics of seasonal component
 void selectHarmonics(vec&, mat&, vec, uvec&, vec&, string&);
 // Identify AR model via information criterion
@@ -45,6 +56,9 @@ rowvec nanStddev(mat y);
 double nanMin(vec y);
 // Incomplete beta function 
 double betaInc(double, double, double);
+// Estimation table
+void outputTable(vec, vector<string>&);
+
 // Standard deviation of vector or matrix (in cols) with nan or inf values
 /***************************************************
  * Function implementations
@@ -64,24 +78,40 @@ void acf(vec& y, int ncoef, vec& acfCoef){
   }
 }
 // Regression
+void regression(vec y, mat X, REGmodel& m){
+  vec beta, stdBeta, e;
+  double AIC, BIC, AICc;
+//  mat covBeta;
+  regress(y, X, beta, stdBeta, e, BIC, AIC, AICc);
+  m.beta = beta;
+//  m.covBeta = covBeta;
+//  m.stdBeta = sqrt(covBeta.diag());
+  m.stdBeta = stdBeta;
+  m.X = X;
+  m.e = e;
+  m.BIC = BIC;
+  m.AIC = AIC;
+  m.AICc = AICc;
+}
 void regress(vec y, mat X, vec& beta, vec& stdBeta, vec& eOut, double& BIC, double& AIC, double& AICc){
   eOut = y;
   uvec ind = find_finite(mean(join_rows(y, X), 1));
   X = X.rows(ind);
   y = y.rows(ind);
   int k = X.n_cols;
-  mat iX = pinv(X.t() * X);
+  mat iX = pinv(X.t() * X), covBeta;
   beta = iX * (X.t() * y);
   vec e = y - X * beta;
   int n = e.n_elem;
   vec varE = (e.t() * e) / (n - k);
-  mat covBeta = varE(0) * iX;
+  covBeta = varE(0) * iX;
   stdBeta = sqrt(covBeta.diag());
   vec nlv = log(varE * (n - k) / n);
   eOut(ind) = e;
   AIC = nlv(0) + 2 * k / n;
   BIC = nlv(0) + k * log(n) / n;
-  AICc = (AIC * n + (2 * k * (1 + k)) / (n - k - 1)) / n;
+  if (n - k - 1 != 0)
+        AICc = (AIC * n + (2 * k * (1 + k)) / (n - k - 1)) / n;
 }
 // Augmented Dickey-Fuller test
 double adfTest(vec& y, vec lags, double& BIC, double& AIC, double& AICc){
@@ -94,7 +124,9 @@ double adfTest(vec& y, vec lags, double& BIC, double& AIC, double& AICc){
                     lag(y(span(1, n - 1)) - y(span(0, n - 2)), lags));
   // Regression with constant and no trend
   vec beta, stdBeta, e;
+  mat covBeta;
   regress(X.col(0), X.cols(span(1, maxLag + 1)), beta, stdBeta, e, BIC, AIC, AICc);
+//  stdBeta = sqrt(covBeta.diag());
   return (beta(0) - 1) / stdBeta(0);
 }
 // Augmented Dickey-Fuller test using criterion identification
@@ -124,7 +156,7 @@ int adfTests(vec y, double nModels, string criterion){
   }
 }
 // Harmonic regression
-void harmonicRegress(vec& y, mat& u, vec period, uword trendPow, vec& beta, vec& stdBeta, vec& e){
+void harmonicRegress(vec& y, mat& u, vec period, uword trendPow, vec& beta, vec& stdBeta, vec& e, vec& yFit){
     // It includes a cubic trend, a constant, harmonics and inputs
     int n = y.n_elem, k = u.n_rows, pos;
     // if (season < 2) season = 4;
@@ -168,15 +200,27 @@ void harmonicRegress(vec& y, mat& u, vec period, uword trendPow, vec& beta, vec&
     }
     // Regression
     double BIC, AIC, AICc;
+    mat covBeta;
     regress(y, X, beta, stdBeta, e, BIC, AIC, AICc);
+//    stdBeta = sqrt(covBeta.diag());
     AIC *= 1;
     BIC *= 1;
     AICc *= 1;
+    yFit = X * beta;
 }
+// Forecasting with harmonic regression
+//void forHarmonicReg(vec y, mat u, int h, vec period, uword trendPow, vec& beta,
+//                    vec& stdBeta, vec& e, vec& yFor){
+//    if (u.n_cols > y.n_elem){
+//        uf = u.cols(y.n_elem, u.n_cols - 1);
+//        u = u.cols(0, y.n_elem - 1);
+//    }
+//    harmonicRegress(y, u, period, trendPow, beta, stdBeta, e);
+//}
 // Select harmonics of seasonal component
 void selectHarmonics(vec& y, mat& u, vec period, uvec& harmonics, vec& beta, string& isSeasonal){
-  vec stdBeta, e;
-  harmonicRegress(y, u, period, 3, beta, stdBeta, e);
+  vec stdBeta, e, yFit;
+  harmonicRegress(y, u, period, 3, beta, stdBeta, e, yFit);
   vec t = abs(beta) / stdBeta;
   int nHarm = ceil((beta.n_rows - u.n_rows - 4.0) / 2.0);
   uvec aux1 = regspace<uvec>(2 * nHarm - 1, t.n_elem - 1);
@@ -203,6 +247,7 @@ void selectAR(vec& y, double maxAR, string criterion, vec& arOrder, vec& eBest, 
   mat X = lag(y, regspace(0, maxAR));
   vec beta, stdBeta, e; //, arBeta;
   double BIC, AIC, AICc; // minCritAR = 1e12; //, minCrit = 1e12;
+  mat covBeta;
   arOrder.zeros(1);
   for (int i = 0; i <= maxAR; i++){
     if (i == 0){   // AR(0)
@@ -210,6 +255,7 @@ void selectAR(vec& y, double maxAR, string criterion, vec& arOrder, vec& eBest, 
       AIC = BIC = AICc = log(as_scalar(eBest.t() * eBest) / eBest.n_elem);
     } else {      // AR(1)...
       regress(X.col(0), X.cols(span(1, i)), beta, stdBeta, e, BIC, AIC, AICc);
+//      stdBeta = sqrt(covBeta.diag());
     }
     if (criterion == "aic"){
       crit(i) = AIC;
@@ -246,6 +292,7 @@ void selectARMA(vec y, double period, double maxAR, string criterion, vec& order
   // AR identification
   mat X = lag(y, regspace(0, maxAR));
   vec stdBeta, e;
+  mat covBeta;
   double BIC, AIC, AICc, minCrit = 1e12, curCrit1 = minCrit, curCrit2 = minCrit;
   vec beta1, beta2;
   vec ind(2); ind(0) = maxAR; ind(1) = y.n_elem - maxAR - 1;
@@ -267,6 +314,7 @@ void selectARMA(vec y, double period, double maxAR, string criterion, vec& order
       } else {
         curCrit1 = AICc;
       }
+//      stdBeta = sqrt(covBeta.diag());
     }
     if (orders(1) < maxOrders(1)){    
       if (orders(0) == 0){           // Pure MA(q+1)
@@ -282,6 +330,7 @@ void selectARMA(vec y, double period, double maxAR, string criterion, vec& order
       } else {
         curCrit2 = AICc;
       }
+//      stdBeta = sqrt(covBeta.diag());
     }
     // Decide which model is best in iteration
     if (curCrit1 <= curCrit2 && curCrit1 < minCrit){      // Incrementing AR order best
@@ -322,7 +371,7 @@ void linearARMA(vec& y, vec orders, vec& beta, vec& stdBeta){
   double BIC, AIC, AICc;
   vec ind(2);
   mat X = lag(y, regspace(0, orders(0)));
-  mat eData = lag(e, regspace(1, orders(1)));
+  mat covBeta, eData = lag(e, regspace(1, orders(1)));
   int dim;
   aux(0) = X.n_rows;
   aux(1) = eData.n_rows;
@@ -337,6 +386,7 @@ void linearARMA(vec& y, vec orders, vec& beta, vec& stdBeta){
     regress(X(span(aux(0) - dim, aux(0) - 1), span(0)), join_rows(X(span(aux(0) - dim, aux(0) - 1), span(1, orders(0))), 
               eData(span(aux(1) - dim, aux(1) - 1), span(0, orders(1) - 1))), beta, stdBeta, e, BIC, AIC, AICc);
   }
+//  stdBeta = sqrt(covBeta.diag());
   if (orders(0) > 0)
     beta(span(0, orders(0) - 1)) = -beta(span(0, orders(0) - 1));
 }
@@ -526,3 +576,142 @@ double betaInc(double a, double b, double x){
   }
   return(cte * (f - 1));
 }
+// Regression with nice output
+void regressTable(REGmodel m, vector<string>& table){
+  //    vec beta, stdBeta, eOut;
+  //    double BIC, AIC, AICc;
+  //    regress(y, X, beta, stdBeta, eOut, BIC, AIC, AICc);
+  char str[70];
+  table.clear();
+  table.push_back("-------------------------------------------------------------\n");
+  snprintf(str, 70, " Regression with %d exogenous\n", (int)m.beta.n_rows);
+  table.push_back(str);
+  table.push_back("----------------------------------------------------\n");
+  table.push_back("            Param       S.E.        |T|    P-value  \n");
+  table.push_back("----------------------------------------------------\n");
+  mat tp;
+  if (m.beta.n_elem > 0){
+      tp = join_rows(m.beta, m.stdBeta, abs(m.beta / m.stdBeta));
+      // Table of numbers
+      char namePar[10];
+      for (unsigned i = 0; i < tp.n_rows; i++){
+        if (all(m.X.row(i)) == 1)
+          snprintf(namePar, 10, "Cnst");
+        //            namePar = "Cnst";
+        else
+          snprintf(namePar, 10, "%s(%d)", "Beta", i);
+        //            namePar = "Beta";
+        if (abs(tp(i, 0)) > 1e-4){
+          snprintf(str, 70, "%*s: %d %12.4f %12.4f\n", 10, namePar, i, tp(i, 0), tp(i, 1));
+          //            snprintf(str, 70, "%*s(%d): %12.4f %12.4f %12.4f %10.6f\n", 10, namePar.c_str(), i, tp(i, 0), tp(i, 1), tp(i, 2), 0);
+        } else {
+          snprintf(str, 70, "%*s: %d %12.3e %12.3e\n", 10, namePar, i, tp(i, 0), tp(i, 1));
+          //            snprintf(str, 70, "%*s(%d): %12.3e %12.3e %12.4f %10.6f\n", 10, namePar.c_str(), i, tp(i, 0), tp(i, 1), tp(i, 2), 0);
+        }
+        table.push_back(str);
+      }
+  }
+  table.push_back("-------------------------------------------------------------\n");
+  snprintf(str, 70, "  AIC: %12.4f   BIC: %12.4f   AICc: %12.4f\n", m.AIC, m.BIC, m.AICc);
+  table.push_back(str);
+  uvec ind = find_finite(m.e);
+  m.e = m.e(ind);
+  m.e = m.e - mean(m.e);
+  vec sigma2 = m.e.t() * m.e / m.e.n_elem;
+  double logLik = -(m.e.n_elem / 2.0) * (log(2.0 * datum::pi * sigma2(0)) + 1.0);
+  snprintf(str, 70, "           Log-Likelihood: %12.4f\n", logLik);
+  table.push_back(str);
+  table.push_back("-------------------------------------------------------------\n");
+  table.push_back("   Summary statistics:\n");
+  table.push_back("-------------------------------------------------------------\n");
+  if (m.e.n_elem < 5){
+    table.push_back("  All innovations are NaN!!\n");
+  } else {
+    outputTable(m.e, table);
+  }
+  table.push_back("-------------------------------------------------------------\n");
+}
+// Estimation table
+void outputTable(vec v, vector<string>& table){
+  int nNan, n = v.n_elem;
+  vec vn = v - nanMean(v);
+  vn = removeNans(vn, nNan);
+  uvec outliers = find(abs(vn) > 2.7 * stddev(vn));
+  int nOutliers = outliers.n_elem;
+  vec vClean = v;
+  vClean(outliers).fill(datum::nan);
+  // Autocorrelations
+  int n4 = n / 4;
+  uvec ind;
+  if (n4 < 168){
+    if (n < 30){
+      //ind << 0 << 1 << 2 << 3 << endr;
+      ind = {0, 1, 2, 3};
+    } else {
+      //ind << 0 << 3 << 7 << 11 << endr;
+      ind = {0, 3, 7, 11};
+    }
+  } else {
+    //ind << 0 << 3 << 7 << 11 << 23 << 167 << endr;
+    ind = {0, 3, 7, 11, 23, 167};
+  }
+  int ncoef = ind.max() + 1;
+  vec acfCoef1, acfCoef2;
+  acf(v, ncoef, acfCoef1);
+  vec qq= n * (n + 2) * cumsum((acfCoef1 % acfCoef1) / (n - regspace(1, ncoef)));
+  vec Q1= qq.rows(ind), Q2;
+  if (nOutliers > 0){
+    acf(vClean, ncoef, acfCoef2);
+    qq= n * (n + 2) * cumsum((acfCoef2 % acfCoef2) / (n - regspace(1, ncoef)));
+    Q2= qq.rows(ind);
+  } else{
+    acfCoef2.zeros(ncoef);
+  }
+  // Gaussianity
+  double bj1, pbj1, bj2 = datum::nan, pbj2 = datum::nan;
+  beraj(v, bj1, pbj1);
+  if (nOutliers > 0){
+    beraj(vClean, bj2, pbj2);
+  }
+  // Heteroskedasticity
+  double F1, pF1, F2 = datum::nan, pF2 = datum::nan;
+  int df1, df2;
+  heterosk(v, F1, pF1, df1);
+  if (nOutliers > 0){
+    heterosk(vClean, F2, pF2, df2);
+  }
+  // Table
+  char str[70];
+  ind = ind + 1;
+  snprintf(str, 70, "        Observations: %5.0i        Missing data: %5.0i\n", (int)v.n_elem, nNan);
+  table.push_back(str);
+  snprintf(str, 70, "        Q(%2.0i): %12.4f         Q(%2.0i): %12.4f\n", (int)ind(0), Q1(0), (int)ind(1), Q1(1));
+  table.push_back(str);
+  snprintf(str, 70, "        Q(%2.0i): %12.4f         Q(%2.0i): %12.4f\n", (int)ind(2), Q1(2), (int)ind(3), Q1(3));
+  table.push_back(str);
+  if (ind.n_rows > 4){
+    snprintf(str, 70, "        Q(%2.0i): %12.4f         Q(%2.0i): %12.4f\n", (int)ind(4), Q1(4), (int)ind(5), Q1(5));
+    table.push_back(str);
+  }
+  snprintf(str, 70, "  Bera-Jarque: %12.4f       P-value: %12.4f\n", bj1, pbj1);
+  table.push_back(str);
+  snprintf(str, 70, "       H(%3.0i): %12.4f       P-value: %12.4f\n", df1, F1, pF1);
+  table.push_back(str);
+  if (nOutliers > 0){
+    snprintf(str, 70, "  Outliers (>2.7 ES): %5.0i\n", nOutliers);
+    table.push_back(str);
+    snprintf(str, 70, "        Q(%2.0i): %12.4f         Q(%2.0i): %12.4f\n", (int)ind(0), Q2(0), (int)ind(1), Q2(1));
+    table.push_back(str);
+    snprintf(str, 70, "        Q(%2.0i): %12.4f         Q(%2.0i): %12.4f\n", (int)ind(2), Q2(2), (int)ind(3), Q2(3));
+    table.push_back(str);
+    if (ind.n_rows > 4){
+      snprintf(str, 70, "        Q(%2.0i): %12.4f         Q(%2.0i): %12.4f\n", (int)ind(4), Q2(4), (int)ind(5), Q2(5));
+      table.push_back(str);
+    }
+    snprintf(str, 70, "  Bera-Jarque: %12.4f       P-value: %12.4f\n", bj2, pbj2);
+    table.push_back(str);
+    snprintf(str, 70, "       H(%3.0i): %12.4f       P-value: %12.4f\n", df2, F2, pF2);
+    table.push_back(str);
+  }
+}
+

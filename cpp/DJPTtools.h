@@ -33,6 +33,8 @@ void chopString(string, string, vector<string>&);
 uvec findChunk(uvec, bool);
 // Issuing errors
 void myError(const char*, bool);
+// Adjust vectors
+void adjustVector(vec&, unsigned int, double);
 
 /**********************
  Function implementations
@@ -145,4 +147,15 @@ void myError(const char* msg){
         p = p(2) * 2;
     //}
 }
-
+// Adjust vectors
+void adjustVector(vec& x, unsigned int n, double value){
+        // Adjust vector to given size n
+        // x:     vector to adjust
+        // n:     new size
+        // value: value to pad
+        unsigned int m = x.n_elem;
+        x.resize(n);
+        if (n > m && value != 0){
+        x.tail_rows(n - m).fill(value);
+        }
+}

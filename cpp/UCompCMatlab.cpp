@@ -12,7 +12,10 @@
  * MEX File function
  */
 
+#include "cpp/defines.hpp"
 #include "cpp/armaMex.hpp"
+// #include "mex.hpp"
+// #include "mexAdapter.hpp"
 // #include <stdio.h>
 #include <armadillo>
 #include <string>
@@ -466,4 +469,5 @@ void mexFunction(int nlhs, mxArray *plhs[], int nrhs, const mxArray *prhs[]){
         plhs[3] = mxCreateString(inputs2.compNames.c_str());
         
     }
+    return;
 }

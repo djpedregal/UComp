@@ -82,8 +82,7 @@ void maInvert(vec& maPoly){
     maRoots(ind) = 1 / maRoots(ind);
     for (unsigned i = 0; i < q; i++){
       iRoot = as_scalar(maRoots.row(i));
-      poly.rows(0, i + 1) = poly.rows(0, i + 1) - 
-        join_vert(poly.rows(i + 1, i + 1), poly.rows(0, i) / iRoot);
+      poly.rows(0, i + 1) -= join_vert(poly.rows(i + 1, i + 1), poly.rows(0, i) / iRoot);
     }
     maPoly = real(poly.rows(1, poly.n_elem - 1));
   }
@@ -104,8 +103,9 @@ void arToPacf(vec& PAR){
   // y(t) = PAR(1) * y(t - 1) + PAR(2) * y(t - 2) + ...
   // Monahan, JF (1984), A note on enforcing stationarity in ARMA models,
   // Biometrika, 71, 2, 403-404.
+  int j;
   for (int i = PAR.n_elem - 1; i > 0; i--){
-    int j = i - 1;
+    j = i - 1;
     PAR(span(0, j)) = (PAR(span(0, j)) + PAR(i) * flipud(PAR(span(0, j))))
       / (1 - PAR(i) * PAR(i));
   }

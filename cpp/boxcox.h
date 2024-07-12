@@ -120,12 +120,12 @@ double llikDecompose(vec y, vec periods, uvec& ind, string type){
     // ind is vector of indices of output variable used in likelihood computation
     // type: type of model 'hr' harmonic regression on full data,
     //       otherwise it does MA trend and harmonic regression on the detrended
-    vec sigma2, beta, stdBeta, e, dy = y;
+    vec sigma2, beta, stdBeta, e, dy = y, yFit;
     uword ma2 = 0;
     double seas = max(periods);
     mat u(0, 0);
     if (type == "hr"){
-        harmonicRegress(y, u, periods, 3, beta, stdBeta, e);
+        harmonicRegress(y, u, periods, 3, beta, stdBeta, e, yFit);
         ind = find_finite(y);
         e = e(ind);
         sigma2 = (e.t() * e) / e.n_elem;
@@ -145,7 +145,7 @@ double llikDecompose(vec y, vec periods, uvec& ind, string type){
         e = e.rows(ma - 1, e.n_rows - ma);
         dy = y - e;
     }
-    harmonicRegress(dy, u, periods, 0, beta, stdBeta, e);
+    harmonicRegress(dy, u, periods, 0, beta, stdBeta, e, yFit);
     ind = find_finite(e);
     e = e(ind);
     ind += ma2;

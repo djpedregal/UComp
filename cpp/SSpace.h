@@ -113,7 +113,7 @@ class SSmodel{
       return inputs.objFunValue;
     }
     // Print inputs on screen
-    // void showInputs();
+     void print();
 };
 /***************************************************
  * Auxiliar function declarations
@@ -145,8 +145,8 @@ vec gradLlik(vec&, void*, double, int&);
 mat hessLlik(void*);
 // True filter/smooth/disturb function
 void auxFilter(unsigned int, SSinputs&);
-// Estimation table
-void outputTable(vec, vector<string>&);
+// solution to lyapunto equation P = Phi * P * Phi' + Q
+mat dlyap(mat Phi, mat Q);
 /****************************************************
  // SS implementations for univariate SS systems
  ****************************************************/
@@ -161,34 +161,34 @@ SSmodel::SSmodel(SSinputs inputs, SSmatrix system){
 // Destructor
 SSmodel::~SSmodel(){}
 // Print inputs on screen
-// void SSmodel::showInputs(){
-//   cout << "**************************" << endl;
-//   cout << "Start of SS system:" << endl;
-//   inputs.y.t().print("y:");
-//   inputs.p.t().print("p:");
-//   inputs.p0.t().print("p0:");
-//   inputs.stdP.t().print("stdP:");
-//   inputs.u.print("u:");
-//   cout << "h: " << inputs.h << endl;
-//   cout << "cLlik: " << inputs.cLlik << endl;
-//   inputs.v.t().print("v:");
-//   inputs.betaAug.t().print("betaAug:");
-//   inputs.criteria.print("criteria:");
-//   inputs.eta.t().print("eta:");
-//   cout << "objFunValue: " << inputs.objFunValue << endl;
-//   cout << "outlier: " << inputs.outlier << endl;
-//   cout << "estimOk: " << inputs.estimOk << endl;
-//   inputs.grad.t().print("grad:");
-//   cout << "d_t: " << inputs.d_t << endl;
-//   cout << "nonStationaryTerms: " << inputs.nonStationaryTerms << endl;
-//   cout << "flag: " << inputs.flag << endl;
-//   cout << "innVariance: " << inputs.innVariance << endl;
-//   cout << "exact: " << inputs.exact << endl;
-//   cout << "verbose: " << inputs.verbose << endl;
-//   cout << "augmented: " << inputs.augmented << endl;
-//   cout << "End of SS system:" << endl;
-//   cout << "**************************" << endl;
-// }
+ // void SSmodel::print(){
+ //   cout << "**************************" << endl;
+ //   cout << "Start of SS system:" << endl;
+ //   inputs.y.t().print("y:");
+ //   inputs.p.t().print("p:");
+ //   inputs.p0.t().print("p0:");
+ //   inputs.stdP.t().print("stdP:");
+ //   inputs.u.print("u:");
+ //   cout << "h: " << inputs.h << endl;
+ //   cout << "cLlik: " << inputs.cLlik << endl;
+ //   inputs.v.t().print("v:");
+ //   inputs.betaAug.t().print("betaAug:");
+ //   inputs.criteria.print("criteria:");
+ //   inputs.eta.t().print("eta:");
+ //   cout << "objFunValue: " << inputs.objFunValue << endl;
+ //   cout << "outlier: " << inputs.outlier << endl;
+ //   cout << "estimOk: " << inputs.estimOk << endl;
+ //   inputs.grad.t().print("grad:");
+ //   cout << "d_t: " << inputs.d_t << endl;
+ //   cout << "nonStationaryTerms: " << inputs.nonStationaryTerms << endl;
+ //   cout << "flag: " << inputs.flag << endl;
+ //   cout << "innVariance: " << inputs.innVariance << endl;
+ //   cout << "exact: " << inputs.exact << endl;
+ //   cout << "verbose: " << inputs.verbose << endl;
+ //   cout << "augmented: " << inputs.augmented << endl;
+ //   cout << "End of SS system:" << endl;
+ //   cout << "**************************" << endl;
+ // }
 // Estimation by Maximum-Likelihood
 void SSmodel::estim(){
   SSmodel::estim(inputs.p0);
@@ -317,24 +317,27 @@ void SSmodel::validate(bool estimateHess, double nPar){
   int k = inputs.p.n_elem;
   uvec nn = find_finite(inputs.y);
   mat hess = eye(k, k);
-  mat iHess = hess;
-  if (estimateHess){
-      hess = hessLlik(&inputs) * 0.5 * nn.n_elem;
-      iHess.fill(datum::nan);
-      if (hess.is_finite()){
-          iHess = pinv(hess);
-          iHess.diag() = abs(iHess.diag());
+  mat iHess = hess, table0;
+  vec t, pValue(k);
+//  if (k > 0){
+      if (estimateHess){
+          hess = hessLlik(&inputs) * 0.5 * nn.n_elem;
+          iHess.fill(datum::nan);
+          if (hess.is_finite()){
+              iHess = pinv(hess);
+              iHess.diag() = abs(iHess.diag());
+          }
       }
-  }
-  inputs.stdP = sqrt(iHess.diag());
-  vec t = abs(inputs.p / inputs.stdP), pValue(k);
-  pValue = 2 * (1- tCdf(t, nn.n_elem - k));
-  uvec aux = find(t > 1000);
-  if (aux.n_elem > 0){
-    t(aux).fill(datum::inf);
-    pValue(aux).fill(0);
-  }
-  mat table0 = join_horiz(join_horiz(join_horiz(inputs.p, inputs.stdP), t), pValue);
+      inputs.stdP = sqrt(iHess.diag());
+      t = abs(inputs.p / inputs.stdP);
+      pValue = 2 * (1- tCdf(t, nn.n_elem - k));
+      uvec aux = find(t > 1000);
+      if (aux.n_elem > 0){
+        t(aux).fill(datum::inf);
+        pValue(aux).fill(0);
+      }
+      table0 = join_horiz(join_horiz(join_horiz(inputs.p, inputs.stdP), t), pValue);
+//  }
   // First part of table
   char str[70];
   inputs.table.clear();
@@ -378,7 +381,10 @@ void SSmodel::validate(bool estimateHess, double nPar){
   inputs.table.push_back(str);
   inputs.table.push_back("-------------------------------------------------------------\n");
   // Recovering innovations for tests
-  llik(inputs.p, &inputs);
+  if (inputs.augmented)
+    llikAug(inputs.p, &inputs);
+  else
+    llik(inputs.p, &inputs);
   filter();
   //Second part of table
   inputs.table.push_back("   Summary statistics:\n");
@@ -411,13 +417,13 @@ void KFinit(mat& T, mat& RQRt, uword ns, vec& at, mat& Pt, mat& Pinft){
   uvec stat;
   isStationary(T, stat);
   if (!stat.is_empty()){
-    int Ns = stat.n_elem;
+    // int Ns = stat.n_elem;
     Pinfdiag.elem(stat).zeros();
     // Lyapunov for stationary elements
     mat q = RQRt(stat, stat);
     mat t = T(stat, stat);
-    int Ns2 = Ns * Ns;
-    mat P2 = reshape(pinv(eye(Ns2, Ns2) - kron(t, t)) * vectorise(q), Ns, Ns);
+    mat P2 = dlyap(t, q);
+    // int Ns = stat.n_elem, Ns2 = Ns * Ns; mat P2bis = reshape(pinv(eye(Ns2, Ns2) - kron(t, t)) * vectorise(q), Ns, Ns);
     Pt(stat, stat) = P2;
   }
   Pinft = diagmat(Pinfdiag);
@@ -1227,86 +1233,49 @@ void auxFilter(unsigned int smooth, SSinputs& data){
     data.eta.replace(datum::inf, 0);
   }
 }
-// Estimation table
-void outputTable(vec v, vector<string>& table){
-  int nNan, n = v.n_elem;
-  vec vn = v - nanMean(v);
-  vn = removeNans(vn, nNan);
-  uvec outliers = find(abs(vn) > 2.7 * stddev(vn));
-  int nOutliers = outliers.n_elem;
-  vec vClean = v;
-  vClean(outliers).fill(datum::nan);
-  // Autocorrelations
-  int n4 = n / 4;
-  uvec ind;
-  if (n4 < 168){
-     if (n < 30){
-        //ind << 0 << 1 << 2 << 3 << endr;
-        ind = {0, 1, 2, 3};
-     } else {
-        //ind << 0 << 3 << 7 << 11 << endr;
-        ind = {0, 3, 7, 11};
-     }
-  } else {
-    //ind << 0 << 3 << 7 << 11 << 23 << 167 << endr;
-    ind = {0, 3, 7, 11, 23, 167};
-  }
-  int ncoef = ind.max() + 1;
-  vec acfCoef1, acfCoef2;
-  acf(v, ncoef, acfCoef1);
-  vec qq= n * (n + 2) * cumsum((acfCoef1 % acfCoef1) / (n - regspace(1, ncoef)));
-  vec Q1= qq.rows(ind), Q2;
-  if (nOutliers > 0){
-    acf(vClean, ncoef, acfCoef2);
-    qq= n * (n + 2) * cumsum((acfCoef2 % acfCoef2) / (n - regspace(1, ncoef)));
-    Q2= qq.rows(ind);
-  } else{
-    acfCoef2.zeros(ncoef);
-  }
-  // Gaussianity
-  double bj1, pbj1, bj2 = datum::nan, pbj2 = datum::nan;
-  beraj(v, bj1, pbj1);
-  if (nOutliers > 0){
-    beraj(vClean, bj2, pbj2);
-  }
-  // Heteroskedasticity
-  double F1, pF1, F2 = datum::nan, pF2 = datum::nan;
-  int df1, df2;
-  heterosk(v, F1, pF1, df1);
-  if (nOutliers > 0){
-    heterosk(vClean, F2, pF2, df2);
-  }
-  // Table
-  char str[70];
-  ind = ind + 1;
-  snprintf(str, 70, "        Missing data: %5.0i\n", nNan);
-  table.push_back(str);
-  snprintf(str, 70, "        Q(%2.0i): %12.4f         Q(%2.0i): %12.4f\n", (int)ind(0), Q1(0), (int)ind(1), Q1(1));
-  table.push_back(str);
-  snprintf(str, 70, "        Q(%2.0i): %12.4f         Q(%2.0i): %12.4f\n", (int)ind(2), Q1(2), (int)ind(3), Q1(3));
-  table.push_back(str);
-  if (ind.n_rows > 4){
-    snprintf(str, 70, "        Q(%2.0i): %12.4f         Q(%2.0i): %12.4f\n", (int)ind(4), Q1(4), (int)ind(5), Q1(5));
-    table.push_back(str);
-  }
-  snprintf(str, 70, "  Bera-Jarque: %12.4f       P-value: %12.4f\n", bj1, pbj1);
-  table.push_back(str);
-  snprintf(str, 70, "      H(%4.0i): %12.4f       P-value: %12.4f\n", df1, F1, pF1);
-  table.push_back(str);
-  if (nOutliers > 0){
-    snprintf(str, 70, "  Outliers (>2.7 ES): %5.0i\n", nOutliers);
-    table.push_back(str);
-    snprintf(str, 70, "        Q(%2.0i): %12.4f         Q(%2.0i): %12.4f\n", (int)ind(0), Q2(0), (int)ind(1), Q2(1));
-    table.push_back(str);
-    snprintf(str, 70, "        Q(%2.0i): %12.4f         Q(%2.0i): %12.4f\n", (int)ind(2), Q2(2), (int)ind(3), Q2(3));
-    table.push_back(str);
-    if (ind.n_rows > 4){
-      snprintf(str, 70, "        Q(%2.0i): %12.4f         Q(%2.0i): %12.4f\n", (int)ind(4), Q2(4), (int)ind(5), Q2(5));
-      table.push_back(str);
+// solution to lyapunov equation P = Phi * P * Phi' + Q
+mat dlyap(mat T, mat Q){
+    uword n = T.n_cols;
+    mat Ur, Phir;
+    schur(Ur, Phir, T);  // U * S * U' = T
+    mat ceros = zeros(n, n);
+    cx_mat U = cx_mat(Ur, ceros), Phi = cx_mat(Phir, ceros);
+    // Pass schur to complex schur
+    uvec k(2);
+    cx_vec mu(2), r(1), c(1), s(1);
+    cx_mat G(2, 2);
+    for (uword m = n - 1; m >= 1; --m) {
+        if (norm(Phi(m, m - 1)) != 0.0) {
+            k(0) = m - 1; k(1) = m;  //regspace<uvec>(m - 1, m);
+            mu = eig_gen(Phi(k, k)) - Phi(m, m) * ones<cx_vec>(2);
+            // r = std::hypot(mu(0), Phir(m, m - 1));
+            r = sqrt(norm(mu(0)) + norm(Phi(m, m - 1)));
+            c = mu(0) / r;
+            s = Phi(m, m - 1) / r;
+            G = join_rows(join_cols(c.t(), -s), join_cols(s, c));
+            Phi.submat(m - 1, m - 1, m, n - 1) = G * Phi.submat(m - 1, m - 1, m, n - 1);
+            Phi.submat(0, m - 1, m, m) = Phi.submat(0, m - 1, m, m) * G.t();
+            U.cols(k) = U.cols(k) * G.t();
+            Phi(m, m - 1) = cx_double(0.0, 0.0);
+        }
     }
-    snprintf(str, 70, "  Bera-Jarque: %12.4f       P-value: %12.4f\n", bj2, pbj2);
-    table.push_back(str);
-    snprintf(str, 70, "      H(%4.0i): %12.4f       P-value: %12.4f\n", df2, F2, pF2);
-    table.push_back(str);
-  }
+    // finding matrix P
+    cx_mat Qc = U.t() * Q * U, P = zeros<cx_mat>(n, n);
+    c = cx_double(1.0, 0.0);
+    for (int j = n-1; j >= 0; --j) {
+        for (int i = n-1; i >= 0; --i) {
+            r = c - Phi(i,i) * Phi.submat(j, j, j, j).t();
+            s = Phi.submat(i, i, i, n - 1) * P.submat(i, j, n - 1, n - 1) *
+                    Phi.submat(j, j, j, n - 1).t() + Qc.submat(i, j, i, j);
+            if (norm(s) < pow(2, -52)) {
+                P(i, j) = cx_double(0.0, 0.0);
+            } else if (norm(r) < pow(2, -52)) {
+                throw std::runtime_error("SSpace: Lyapunov equation with no solution!!!");
+            } else {
+                P(i, j) = s(0) / r(0);
+            }
+        }
+    }
+    return real(U * P * U.t());
 }
+
