@@ -14,8 +14,7 @@ function m1 = TETS(y, s, varargin)
 %    m = TETS(y, 12, 'model', '???');
 %    m = TETS(y, 12, 'model', '?AA');
     m1 = TETSsetup(y, s, varargin{:});
-    if (min(m1.Ymax, [], 'omitnan') > max(y, [], 'omitnan') && ...
-            max(m1.Ymin, [], 'omitnan') < min(y, [], 'omitnan'))
+    if (min(Ymax - y, [], 'omitnan') ~= 0 && min(y - Ymin, [], 'omitnan') ~= 0)
         m1 = ETSvalidate(m1);
     else
         m1 = TETSvalidate(m1);

@@ -56,7 +56,7 @@ function m1 = TETSmodel(y, s, varargin)
 %    m = TETSmodel(y, 12, 'model', '???');
 %    m = TETSmodel(y, 12, 'model', '?AA');
     m1 = TETSsetup(y, s, varargin{:});
-    if (min(Ymax -y, [], 'omitnan') > 0 && min(y - Ymin, [], 'omitnan') > 0)
+    if (min(Ymax - y, [], 'omitnan') ~= 0 && min(y - Ymin, [], 'omitnan') ~= 0)
         m1 = ETSestim(m1);
     else
         m1 = TETSestim(m1);
