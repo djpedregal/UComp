@@ -1,0 +1,32 @@
+Package: UComp
+Type: Package
+Title: Automatic Univariate Time Series Modelling of many Kinds
+Version: 5.3.1
+Date: 2026-05-06
+Author: Diego J. Pedregal [aut, cre] (<https://orcid.org/0000-0003-4958-0969>)
+Authors@R: c(person("Diego J. Pedregal", role = c("aut", "cre"),
+                     email = "diego.pedregal@uclm.es",
+                     comment = c(ORCID = "0000-0003-4958-0969")))
+Maintainer: Diego J. Pedregal <diego.pedregal@uclm.es>
+Description: Comprehensive analysis and forecasting 
+             of univariate time series using automatic 
+             time series models of many kinds.
+             Harvey AC (1989) <doi:10.1017/CBO9781107049994>.
+             Pedregal DJ and Young PC (2002) <doi:10.1002/9780470996430>.
+             Durbin J and Koopman SJ (2012) <doi:10.1093/acprof:oso/9780199641178.001.0001>.
+             Hyndman RJ, Koehler AB, Ord JK, and Snyder RD (2008) <doi:10.1007/978-3-540-71918-2>.
+             Gómez V, Maravall A (2000) <doi:10.1002/9781118032978>.
+             Pedregal DJ, Trapero JR and Holgado E (2024) <doi:10.1016/j.ijforecast.2023.09.004>.
+License: GPL-3
+Encoding: UTF-8
+Imports: ggplot2, gridExtra, tsibble, tsoutliers,
+         stats, ggforce, utils, parallel
+LinkingTo: Rcpp, RcppArmadillo
+Depends: 
+    Rcpp (>= 1.0.3),
+    R (>= 3.5.0)
+LazyData: true
+Suggests: 
+    knitr,
+    rmarkdown
+RoxygenNote: 7.3.3

@@ -1,0 +1,60 @@
+Changes from version 5.2.1 to 5.3
+* Inclusion of constrained TVPs in UC models
+* Experimental forecasting functions: WEEKforecast and DAYforecast.
+Changes from version 5.1.1 to 5.2.1
+* Some bugs fixed
+* Adaptation to Armadillo 15.0.3.
+* Improve of slide function to work with data in lists
+Changes from version 5.1 to 5.1.1
+* UC models code simplified
+* Some bugs fixed
+Changes from version 5.0.6 to 5.1
+* TETS models extended to include non-linear and heteroscedastic models
+Changes from version 5.0.5 to 5.0.6
+* Adapt to Armadillo 14.4.0
+Changes from version 5.0.4 to 5.0.5
+* Remove PTS models (it will appear in another package)
+* All *model (*= UC, ARIMA, ETS, TETS) functions renamed as *forecast
+* Some bugs fixed
+Changes from version 4.0.0 to 5.0.3
+* TETS (Tobit censored ExponenTial Smoothing) models. Two-sided and time varying censorship
+* ARIMA models added with automatic identification based on Hannan-Rissanen method
+* Some bugs fixed
+Changes from version 3.0.0 to 4.0.0
+ * ETS models a la Hyndman added with same syntax than UC
+ * Multiple diagnostic statistics and other useful tools (tests, zplane, etc.)
+ * Some tools added to perform slide forecasting (slide and plotSlide)
+Changes from version 2.2.3 to 3.0.0
+ * Added models: td (trend with fixed slope), linear (seasonal model as in standard BSM)
+ * Time-Varying regression terms for input variables
+ * Box-Cox lambda automatic identification
+ * New inputs trendOptions, seasonalOptions and irregularOptions introduced
+ * Some bugs fixed
+Changes from version 2.2.2 to 2.2.3
+ * minor bugs fixed
+Changes from version 2.2.1 to 2.2.2
+ * Arma identification deactivated in some weird cases
+ * minor bugs fixed
+Changes from version 2.2 to 2.2.1
+ * Help documentation improved
+ * Bugs fixed
+Changes from version 2.1.2 to 2.2
+ * New function getp0 to get initial conditions of parameters
+ * Output table of UCvalidate changed to show parameters and their asymptotic s.e. in the original parameter space
+ * Many bugs fixed. Among them the most important are NaNs in covariance of parameters
+ * New fields added to UComp objects: covariance matrix of estimates (covp); number of iterations in estimation (iter)
+ * Zero components not return to make plot(model) prittier.
+ * Labels added to estimated states.
+ * Documentation improved.
+ * Sales time series removed.
+ * Predict function extended to prediction intervals
+Changes from version 2.2 to 3.0
+ * Random Walk with drift model added
+ * Inputs trendOptions, seasonalOptions, irregularOptions added
+ * Regression with inputs with time varying parameters
+ * Some bugs fixed
+ * Wrapper functions simplified
+
+
+
+
