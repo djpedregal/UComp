@@ -1154,7 +1154,22 @@ void auxFilter(unsigned int smooth, SSinputs& data){
             Nt = Lt.t() * Nt * Lt;
         }
       } else {
+        // Missing observation: no information to inject (Z effectively 0,
+        // Kt = Kinft = 0), so Lt = T and the recursion reduces to a pure
+        // state-transition propagation of r/N. This must happen here, before
+        // r/N are used below to correct data.a.col(t), exactly as the
+        // non-missing branch above already updates r/N before using them -
+        // otherwise data.a.col(t) is corrected with the stale r_t instead of
+        // r_{t-1}, which showed up as a spurious jump in the smoothed states
+        // right at the edges of a run of missing observations.
         miss = true;
+        rt = data.system.T.t() * rt;
+        Nt = data.system.T.t() * Nt * data.system.T;
+        if (!colapsed){
+          rinft = data.system.T.t() * rinft;
+          Ninft = data.system.T.t() * Ninft * data.system.T;
+          N2t = data.system.T.t() * N2t * data.system.T;
+        }
       }
       Pt = cP.slice(t);
       data.a.col(t) += Pt * rt;
@@ -1180,16 +1195,6 @@ void auxFilter(unsigned int smooth, SSinputs& data){
         data.rNrOut.row(t) = rt.t() * pinv(Nt) * rt;
         data.rOut.col(t) = rt;
         data.NOut.slice(t) = Nt;
-      }
-      // Passing to rt(t-1) and Nt(t-1)
-      if (t > 0 && miss){
-        rt = data.system.T.t() * rt;
-        Nt = data.system.T.t() * Nt * data.system.T;
-        if (!colapsed){
-          rinft = data.system.T.t() * rinft;
-          Ninft = data.system.T.t() * Ninft * data.system.T;
-          N2t = data.system.T.t() * N2t * data.system.T;
-        }
       }
     }
   }
